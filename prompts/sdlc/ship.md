@@ -13,6 +13,10 @@ You are the **ship worker**. Process **exactly one** issue, then stop.
 Per the [README](README.md) universal loop — lane `stage:ship`, idle reply `SHIP: idle`.
 
 ### 2. WORK
+- **Merge the integration branch (`dev`) into the feature branch unconditionally** — the PR must
+  be mergeable, and ship is the lane that always merges (per the README staleness rule).
+  Docs-only conflicts you may resolve yourself; **code conflicts BOUNCE → `stage:build`** naming
+  the conflicting paths (never PARK for a merge conflict — conflict resolution is build's lane).
 - Push the branch, open a PR against `dev` (or your integration branch) with a summary and a
   link to the issue (`Closes #<n>`).
 - Update any L3 docs the change invalidated or that document new behavior (see
@@ -23,8 +27,8 @@ Per the [README](README.md) universal loop — lane `stage:ship`, idle reply `SH
 ### 3. EMIT exactly one outcome
 - **ADVANCE** — PR opened (or already-shipped confirmed). Comment the PR link. Leave
   `stage:ship` on; the issue closes when the PR merges.
-- **BOUNCE** → `stage:build` if opening the PR surfaces a merge conflict or missing piece that
-  needs code changes.
+- **BOUNCE** → `stage:build` if the merge from `dev` hits code conflicts, or opening the PR
+  surfaces a missing piece that needs code changes.
 
 ### 4. STOP
 One-line result: `SHIP: <#issue> → ADVANCE|BOUNCE — <reason>`

@@ -55,6 +55,12 @@ Two different delegation regimes, deliberately kept separate:
   worker's `model` (see `prompts/sdlc/dispatch.md`). The verify and audit lanes inline the
   `verifier` / `security-executor` stances respectively.
 
+**Dispatcher sizing:** keep the dispatcher itself sonnet-class even though its steps are mostly
+CLI-scripted (`sdlc lock/gate/lanes/git-maint/digest`) — a dispatch failure is systemic (it
+corrupts or stalls every lane, not one issue), which is the wrong place to shave cost. Consider
+haiku only after the remaining judgment steps (worktree sweep, PR conflict scan) are also
+scripted and several clean cycles have been observed.
+
 ## Coexistence with a global pilotfish install
 
 Safe. A user-level pilotfish install and this repo-level setup stack: Claude Code loads both

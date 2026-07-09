@@ -9,12 +9,21 @@
  * stay judgment (the agent writes them); `sdlc comment` is a thin plumbing
  * wrapper that posts a body the agent already authored to a file.
  *
- * Commands:
- *   sdlc claim   <issue>              add sdlc:wip, print branch + working-tree status
+ * Commands (worker-side — issue #609):
+ *   sdlc claim   <issue> [<run-id> <lane>]  add sdlc:wip (+ claim comment), print branch + status
  *   sdlc advance <issue> <to-stage>   validate transition, swap stage label, drop sdlc:wip
  *   sdlc context <issue>              branch + status + issue labels/state + open PRs for branch
  *   sdlc worktree <issue> [<branch>]  add a sibling git worktree for the issue's branch
  *   sdlc comment <issue> <file>       post a body-file comment (plumbing only)
+ *
+ * Commands (dispatcher-side — issue #615; each a pure function of gh/git state):
+ *   sdlc gate     [--reap]            per-issue wip-lock ages from timeline events → LIVE/REAP/CLEAR (#613)
+ *   sdlc lock     <run-id>            take the dispatcher singleton lock (pinned dispatch-lock issue)
+ *   sdlc unlock   <run-id>            release the dispatcher singleton lock
+ *   sdlc lanes                        per-lane depth + eligibility + the ≠1 stage-label check (#614)
+ *   sdlc heal     [<lane>] <issue>    post-worker self-heal: did the worker clear its lock?
+ *   sdlc git-maint                    fetch, ff dev, prune ancestry/squash-merged branches, PR state
+ *   sdlc digest   [--state <file>]    queue depths, parked/hold lists, arrivals-diff vs last cycle
  *
  * The stage graph (forward pipeline edges + the documented bounces):
  *   intake → design → queued → build → verify → audit → ship
@@ -26,6 +35,7 @@
  */
 
 import { execFileSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -107,6 +117,272 @@ export function planAdvance(labelNames, toStage) {
   return { from, to: toStage, removeLabels, addLabels: [`stage:${toStage}`] };
 }
 
+// --- Pure dispatcher-side helpers (issue #615) ---------------------------------
+
+/** Lanes that have a worker (queued is the workerless human throttle). */
+export const WORKER_LANES = ['intake', 'design', 'build', 'verify', 'audit', 'ship'];
+
+/** Labels that make an item ineligible for a worker to claim. */
+export const PARK_LABELS = ['sdlc:needs-human', 'sdlc:hold'];
+
+/** The wip-lock reap threshold: two full hourly cycles. */
+export const WIP_STALE_MS = 2 * 60 * 60 * 1000;
+
+/** Priority ordering for CLAIM: lower rank sorts first. Unlabeled sorts last. */
+export const PRIORITY_RANK = {
+  'priority:critical': 0,
+  'priority:medium': 1,
+  'priority:future': 2,
+};
+const NO_PRIORITY_RANK = 3;
+
+/** Every `stage:*` suffix on a label set (defensive: may be 0 or >1). */
+export function stagesOf(labelNames) {
+  return (labelNames ?? [])
+    .filter((n) => n.startsWith('stage:'))
+    .map((n) => n.slice('stage:'.length));
+}
+
+/** The priority rank of a label set (unlabeled → last). */
+export function priorityRank(labelNames) {
+  for (const [label, rank] of Object.entries(PRIORITY_RANK)) {
+    if ((labelNames ?? []).includes(label)) return rank;
+  }
+  return NO_PRIORITY_RANK;
+}
+
+/**
+ * The per-issue wip-lock gate decision (issue #613/#615; per-issue concurrency).
+ * `wipItems` is `[{ number, ageMs }]` — age measured from the `sdlc:wip`
+ * labeled event, NOT the issue's updatedAt (which any later comment/edit
+ * falsely refreshes). Pure.
+ *
+ * Locking is per-issue: a fresh lock means a LIVE worker — that one issue is
+ * simply ineligible this cycle; it never aborts the run. A stale lock
+ * (at/over the threshold) is a dead worker → REAP that item only.
+ */
+export function planGate(wipItems, thresholdMs = WIP_STALE_MS) {
+  const items = wipItems ?? [];
+  const live = items.filter((i) => i.ageMs < thresholdMs);
+  const reap = items.filter((i) => i.ageMs >= thresholdMs);
+  const decision = items.length === 0 ? 'clear' : reap.length > 0 ? 'reap' : 'live';
+  return { decision, live, reap };
+}
+
+/**
+ * Dispatcher singleton-lock decision from the dispatch-lock issue's comments
+ * (`[{ body, createdAt }]`, chronological). The most recent `lock <run-id> <ts>`
+ * comment holds the mutex unless a matching `unlock <run-id>` follows it or it
+ * is older than the threshold (dead dispatcher). Pure.
+ */
+export function planLock(comments, nowMs, thresholdMs = WIP_STALE_MS) {
+  let holder = null;
+  for (const c of comments ?? []) {
+    const lock = c.body?.match(/^lock\s+(\S+)/);
+    const unlock = c.body?.match(/^unlock\s+(\S+)/);
+    if (lock) holder = { runId: lock[1], createdAt: c.createdAt };
+    else if (unlock && holder && unlock[1] === holder.runId) holder = null;
+  }
+  if (!holder) return { held: false, holder: null, stale: false };
+  const ageMs = nowMs - new Date(holder.createdAt).getTime();
+  const stale = ageMs >= thresholdMs;
+  return { held: !stale, holder: holder.runId, stale, ageMs };
+}
+
+/**
+ * Claim-verify race decision from an issue's comments (`[{ body, createdAt }]`,
+ * chronological). Considers `sdlc:claim <run-id> <lane>` comments newer than the
+ * last outcome EMIT (a comment starting with ADVANCE/BOUNCE/PARK/CONTINUE or a
+ * reap). Winner = earliest claim; ties break to the lexicographically lower
+ * run-id. Pure.
+ */
+export function planClaimVerify(comments, myRunId) {
+  const OUTCOME = /^(ADVANCE|BOUNCE|PARK|CONTINUE|sdlc-dispatch: reaped)/;
+  let claims = [];
+  for (const c of comments ?? []) {
+    if (OUTCOME.test(c.body ?? '')) {
+      claims = []; // claims before an outcome are settled history
+      continue;
+    }
+    const m = c.body?.match(/^sdlc:claim\s+(\S+)/);
+    if (m) claims.push({ runId: m[1], createdAt: c.createdAt });
+  }
+  if (!claims.some((c) => c.runId === myRunId)) {
+    return { won: false, winner: null, reason: 'own claim not found' };
+  }
+  const winner = claims.slice().sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+    return a.runId < b.runId ? -1 : 1;
+  })[0];
+  return { won: winner.runId === myRunId, winner: winner.runId, reason: null };
+}
+
+/**
+ * The most recent time `label` was added, from GitHub issue timeline events.
+ * Returns an ISO string or null. Pure over the parsed `/timeline` payload.
+ */
+export function lastLabeledAt(timelineEvents, label) {
+  let latest = null;
+  for (const ev of timelineEvents ?? []) {
+    if (ev.event === 'labeled' && ev.label?.name === label && ev.created_at) {
+      if (latest === null || ev.created_at > latest) latest = ev.created_at;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Per-lane eligibility + depth from ONE open-issue snapshot, plus the ≠1
+ * `stage:*` integrity check (issue #614). `issues` is
+ * `[{ number, labels:[{name}]|[name], createdAt }]`. Pure.
+ *
+ * Eligible = has that stage, not wip and not parked/hold; ordered exactly as a
+ * worker's CLAIM would pick — priority (critical › medium › future › none),
+ * then FIFO by createdAt. `integrity` lists every issue whose stage-label count
+ * is not exactly 1 (0 = invisible to every lane, >1 = eligible in two lanes).
+ */
+export function computeLanes(issues) {
+  const norm = (issues ?? []).map((i) => ({
+    number: i.number,
+    createdAt: i.createdAt ?? '',
+    labels: (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
+  }));
+
+  const lanes = {};
+  for (const lane of WORKER_LANES.concat('queued')) {
+    lanes[lane] = { depth: 0, eligible: [] };
+  }
+
+  const integrity = [];
+  for (const issue of norm) {
+    const stages = stagesOf(issue.labels);
+    // Multiple stage labels are always corrupt. Zero is only corrupt when the
+    // issue still carries a machine flag (wip/needs-human) — a stage-less open
+    // issue is otherwise a legitimate state: post-ship awaiting PR merge, the
+    // dispatch-lock issue, or simply not (yet) in the pipeline.
+    const zeroButFlagged =
+      stages.length === 0 &&
+      (issue.labels.includes(WIP_LABEL) || issue.labels.includes('sdlc:needs-human'));
+    if (stages.length > 1 || zeroButFlagged) {
+      integrity.push({ number: issue.number, stages });
+    }
+    for (const stage of stages) {
+      if (!lanes[stage]) continue; // unknown stage label — skip (currentStage guards elsewhere)
+      lanes[stage].depth += 1;
+      const parked = PARK_LABELS.some((p) => issue.labels.includes(p));
+      const locked = issue.labels.includes(WIP_LABEL);
+      if (!parked && !locked) {
+        lanes[stage].eligible.push(issue);
+      }
+    }
+  }
+
+  for (const lane of Object.keys(lanes)) {
+    lanes[lane].eligible = lanes[lane].eligible
+      .sort((a, b) => {
+        const pr = priorityRank(a.labels) - priorityRank(b.labels);
+        if (pr !== 0) return pr;
+        return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+      })
+      .map((i) => i.number);
+  }
+
+  return { lanes, integrity };
+}
+
+/** Post-worker self-heal check: did the worker clear its lock? Pure. */
+export function planHeal(labelNames) {
+  return { stillLocked: (labelNames ?? []).includes(WIP_LABEL) };
+}
+
+/**
+ * Which local branches are safe to delete as ancestry-merged into `dev`.
+ * `mergedBranches` is the raw `git branch --merged dev` line list. Never
+ * returns dev, master, or the current branch. Pure — the caller still
+ * re-confirms each with `git merge-base --is-ancestor` before deleting.
+ */
+export function planBranchPrune(mergedBranches, currentBranch) {
+  const keep = new Set(['dev', 'master', currentBranch]);
+  return (mergedBranches ?? [])
+    .map((line) => {
+      // `git branch` marks the current branch with `* ` and a branch checked
+      // out in a linked worktree with `+ `. Capture the marker + name.
+      const m = line.match(/^([*+]?)\s*(\S+)/);
+      return m ? { marker: m[1], name: m[2] } : null;
+    })
+    .filter((b) => b && b.name)
+    // A `+ ` worktree-held branch is off-limits: `git branch -D` refuses it,
+    // exactly like the current branch — never a prune candidate.
+    .filter((b) => b.marker !== '+')
+    .map((b) => b.name)
+    .filter((b) => !keep.has(b));
+}
+
+/** Branch names whose upstream shows `[gone]` in `git branch -vv` output. Pure. */
+export function parseGoneBranches(branchVvOutput, currentBranch) {
+  const keep = new Set(['dev', 'master', currentBranch]);
+  const gone = [];
+  for (const line of (branchVvOutput ?? '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    // `  branch  <sha> [origin/branch: gone] msg` — leading `* ` marks the
+    // current branch, `+ ` a branch checked out in a linked worktree.
+    const m = line.match(/^([*+]?)\s*(\S+)\s+[0-9a-f]+\s+\[[^\]]*: gone\]/);
+    // Skip `+ ` worktree-held branches: `git branch -D` refuses them.
+    if (m && m[1] !== '+' && !keep.has(m[2])) gone.push(m[2]);
+  }
+  return gone;
+}
+
+/**
+ * A squash-merged branch (invisible to `--merged`) may be deleted ONLY when all
+ * three hold: upstream is gone, its PR is MERGED, and the local tip equals the
+ * merged head SHA — so no local-only commits are lost. Pure.
+ */
+export function canDeleteSquashMerged({ upstreamGone, prState, localTip, headRefOid }) {
+  return (
+    upstreamGone === true &&
+    prState === 'MERGED' &&
+    Boolean(localTip) &&
+    localTip === headRefOid
+  );
+}
+
+/**
+ * Digest numbers from a snapshot: per-lane depth, parked/hold lists, and — when
+ * a previous snapshot's open-issue numbers are supplied — the arrivals/departures
+ * diff vs last cycle. `issues` is `[{ number, labels }]`. Pure.
+ */
+export function computeDigest(issues, prevNumbers = null) {
+  const norm = (issues ?? []).map((i) => ({
+    number: i.number,
+    labels: (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
+  }));
+
+  const depths = {};
+  for (const lane of WORKER_LANES.concat('queued')) depths[lane] = 0;
+  const parked = [];
+  const hold = [];
+  for (const issue of norm) {
+    for (const stage of stagesOf(issue.labels)) {
+      if (depths[stage] !== undefined) depths[stage] += 1;
+    }
+    if (issue.labels.includes('sdlc:needs-human')) parked.push(issue.number);
+    if (issue.labels.includes('sdlc:hold')) hold.push(issue.number);
+  }
+
+  const current = norm.map((i) => i.number);
+  let arrivals = null;
+  let departures = null;
+  if (prevNumbers) {
+    const prev = new Set(prevNumbers);
+    const now = new Set(current);
+    arrivals = current.filter((n) => !prev.has(n));
+    departures = prevNumbers.filter((n) => !now.has(n));
+  }
+
+  return { depths, parked, hold, current, arrivals, departures };
+}
+
 // --- I/O boundary: gh / git executors (injectable for tests) -------------------
 
 const defaultGh = (args) => execFileSync('gh', args, { encoding: 'utf8' });
@@ -128,14 +404,50 @@ function requireIssue(issue) {
   return String(issue).replace(/^#/, '');
 }
 
+/** One open-issue snapshot that serves a whole cycle (Step 0). */
+function snapshotOpenIssues(gh, fields = 'number,labels,createdAt,title') {
+  return JSON.parse(gh(['issue', 'list', '--state', 'open', '--json', fields, '--limit', '200']));
+}
+
+/** Human-readable lock age. */
+function fmtAge(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h${m}m` : `${m}m`;
+}
+
 // --- Commands ------------------------------------------------------------------
 
 function cmdClaim(args, { gh, git, log }) {
-  const issue = requireIssue(args[0]);
+  const verify = args.includes('--verify');
+  const positional = args.filter((a) => a !== '--verify');
+  const issue = requireIssue(positional[0]);
+  const runId = positional[1];
+  const lane = positional[2];
+  if (runId && !lane) {
+    throw new SdlcError('claim with a run-id also requires a lane: sdlc claim <issue> <run-id> <lane>');
+  }
+  if (verify && !runId) {
+    throw new SdlcError('--verify requires a run-id + lane: sdlc claim <issue> <run-id> <lane> --verify');
+  }
   gh(['issue', 'edit', issue, '--add-label', WIP_LABEL]);
+  if (runId) {
+    // The label is the visibility signal; this comment is the ownership record
+    // and race tiebreaker (see prompts/sdlc/README.md CLAIM).
+    gh(['issue', 'comment', issue, '--body', `sdlc:claim ${runId} ${lane}`]);
+  }
+  if (verify) {
+    const result = planClaimVerify(fetchLockComments(gh, issue), runId);
+    if (!result.won) {
+      log(`claim: LOST race on #${issue} to ${result.winner ?? '(unknown)'} — leave the label, pick the next item.`);
+      process.exitCode = 1;
+      return;
+    }
+    log(`claim: verified — ${runId} owns #${issue}.`);
+  }
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   const status = git(['status', '--short']).trimEnd();
-  log(`claimed #${issue} (+${WIP_LABEL})`);
+  log(runId ? `claimed #${issue} (+${WIP_LABEL}, claim ${runId} ${lane})` : `claimed #${issue} (+${WIP_LABEL})`);
   log(`branch: ${branch}`);
   log(status ? `status:\n${status}` : 'status: clean');
 }
@@ -208,13 +520,257 @@ function cmdComment(args, { gh, log }) {
   log(`#${issue}: comment posted from ${file}`);
 }
 
+function cmdGate(args, { gh, log }) {
+  const reap = args.includes('--reap');
+  const snapshot = snapshotOpenIssues(gh, 'number,labels,updatedAt');
+  const wip = snapshot.filter((i) => (i.labels ?? []).some((l) => l.name === WIP_LABEL));
+  const now = Date.now();
+  const wipItems = wip.map((i) => {
+    // Accurate age from the sdlc:wip labeled event, not updatedAt (issue #613).
+    let addedAt = null;
+    try {
+      const timeline = JSON.parse(
+        gh(['api', `repos/{owner}/{repo}/issues/${i.number}/timeline`, '--paginate']),
+      );
+      addedAt = lastLabeledAt(timeline, WIP_LABEL);
+    } catch {
+      addedAt = null; // fall back below
+    }
+    const stamp = addedAt ?? i.updatedAt;
+    const ageMs = now - new Date(stamp).getTime();
+    return { number: i.number, ageMs, viaTimeline: addedAt !== null };
+  });
+
+  const plan = planGate(wipItems);
+  for (const it of plan.live) {
+    log(`gate: LIVE #${it.number} (${fmtAge(it.ageMs)}) — worker running; ineligible this cycle.`);
+  }
+  for (const it of plan.reap) {
+    log(`gate: REAP #${it.number} (stale ${fmtAge(it.ageMs)})`);
+    if (reap) {
+      gh(['issue', 'edit', String(it.number), '--remove-label', WIP_LABEL]);
+      gh([
+        'issue',
+        'comment',
+        String(it.number),
+        '--body',
+        'sdlc-dispatch: reaped stale sdlc:wip lock (no activity ≥2h — worker presumed dead). Item re-enters its lane. Its worktree is left in place for reuse.',
+      ]);
+      log(`  reaped: removed ${WIP_LABEL} from #${it.number}`);
+    }
+  }
+  if (plan.reap.length && !reap) log('gate: run with --reap to remove the stale lock(s) and comment.');
+  if (plan.decision === 'clear') log('gate: CLEAR — no wip locks.');
+}
+
+/** Find the pinned dispatcher-mutex issue by its exact title. */
+function findDispatchLockIssue(gh) {
+  const list = JSON.parse(
+    gh(['issue', 'list', '--state', 'open', '--search', 'sdlc:dispatch-lock in:title', '--json', 'number,title']),
+  );
+  const hit = list.find((i) => i.title === 'sdlc:dispatch-lock');
+  if (!hit) throw new SdlcError('no open issue titled "sdlc:dispatch-lock" — create + pin it first');
+  return hit.number;
+}
+
+function fetchLockComments(gh, issue) {
+  return JSON.parse(
+    gh(['issue', 'view', String(issue), '--json', 'comments', '--jq', '[.comments[] | {body: .body, createdAt: .createdAt}]']),
+  );
+}
+
+function cmdLock(args, { gh, log }) {
+  const runId = args[0];
+  if (!runId) throw new SdlcError('lock requires a run-id: sdlc lock <run-id>');
+  const issue = findDispatchLockIssue(gh);
+  const plan = planLock(fetchLockComments(gh, issue), Date.now());
+  if (plan.held) {
+    log(`lock: HELD by ${plan.holder} (${fmtAge(plan.ageMs)}) — abort the cycle.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (plan.stale) log(`lock: superseding stale lock from ${plan.holder} (${fmtAge(plan.ageMs)}, no unlock).`);
+  gh(['issue', 'comment', String(issue), '--body', `lock ${runId} ${new Date().toISOString()}`]);
+  log(`lock: ACQUIRED ${runId} (issue #${issue}).`);
+}
+
+function cmdUnlock(args, { gh, log }) {
+  const runId = args[0];
+  if (!runId) throw new SdlcError('unlock requires a run-id: sdlc unlock <run-id>');
+  const issue = findDispatchLockIssue(gh);
+  gh(['issue', 'comment', String(issue), '--body', `unlock ${runId}`]);
+  log(`unlock: RELEASED ${runId} (issue #${issue}).`);
+}
+
+function cmdLanes(args, { gh, log }) {
+  const snapshot = snapshotOpenIssues(gh);
+  const { lanes, integrity } = computeLanes(snapshot);
+  for (const lane of WORKER_LANES.concat('queued')) {
+    const l = lanes[lane];
+    const elig = l.eligible.length ? l.eligible.map((n) => `#${n}`).join(', ') : '—';
+    log(`${lane}: depth ${l.depth}, eligible ${elig}`);
+  }
+  if (integrity.length) {
+    log('integrity (≠1 stage label — needs human):');
+    for (const v of integrity) {
+      const desc = v.stages.length === 0 ? 'no stage label' : `stages: ${v.stages.join(', ')}`;
+      log(`  #${v.number}: ${desc}`);
+    }
+  } else {
+    log('integrity: clean (every open issue has exactly one stage label)');
+  }
+}
+
+function cmdHeal(args, { gh, log }) {
+  // Accept `heal <lane> <issue>` or `heal <issue>`; lane is advisory only.
+  const issueArg = args.length >= 2 ? args[1] : args[0];
+  const lane = args.length >= 2 ? args[0] : null;
+  const issue = requireIssue(issueArg);
+  const labels = fetchLabelNames(gh, issue);
+  const { stillLocked } = planHeal(labels);
+  const laneNote = lane ? ` (${lane})` : '';
+  if (stillLocked) {
+    log(`heal: #${issue}${laneNote} STALLED — still carries ${WIP_LABEL}; worker did not emit an outcome.`);
+  } else {
+    log(`heal: #${issue}${laneNote} OK — lock cleared; ${stagesOf(labels)[0] ? `now stage:${stagesOf(labels)[0]}` : 'no stage label'}.`);
+  }
+}
+
+function cmdGitMaint(args, { git, gh, log }) {
+  const current = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+
+  git(['fetch', 'origin', '--prune']);
+
+  // Update dev without touching the working tree.
+  const devBefore = (() => {
+    try {
+      return git(['rev-parse', 'dev']).trim();
+    } catch {
+      return null;
+    }
+  })();
+  try {
+    if (current === 'dev') git(['pull', '--ff-only', 'origin', 'dev']);
+    else git(['fetch', 'origin', 'dev:dev']);
+    const devAfter = git(['rev-parse', 'dev']).trim();
+    log(
+      devBefore === devAfter
+        ? 'dev update: already current'
+        : `dev update: ${devBefore?.slice(0, 8)}..${devAfter.slice(0, 8)}`,
+    );
+  } catch (err) {
+    log(`dev update: skipped (${String(err.message).split('\n')[0]})`);
+  }
+
+  // Ancestry-merged prune.
+  const merged = git(['branch', '--merged', 'dev']).split(/\r?\n/);
+  const candidates = planBranchPrune(merged, current);
+  const pruned = [];
+  for (const b of candidates) {
+    try {
+      git(['merge-base', '--is-ancestor', b, 'dev']); // throws (nonzero) if not ancestor
+      git(['branch', '-D', b]);
+      pruned.push(b);
+    } catch {
+      // not a true ancestor — leave it
+    }
+  }
+  log(pruned.length ? `pruned (ancestry-merged): ${pruned.join(', ')}` : 'pruned (ancestry-merged): none');
+
+  // Squash-merged prune (3-condition safety).
+  const gone = parseGoneBranches(git(['branch', '-vv']), current);
+  const squashPruned = [];
+  const leftGone = [];
+  for (const b of gone) {
+    try {
+      const pr = JSON.parse(gh(['pr', 'view', b, '--json', 'state,headRefOid']));
+      const localTip = git(['rev-parse', b]).trim();
+      if (canDeleteSquashMerged({ upstreamGone: true, prState: pr.state, localTip, headRefOid: pr.headRefOid })) {
+        git(['branch', '-D', b]);
+        squashPruned.push(b);
+      } else {
+        leftGone.push(`${b} (pr ${pr.state}, tip ${localTip === pr.headRefOid ? '=' : '≠'} head)`);
+      }
+    } catch {
+      leftGone.push(`${b} (no merged PR / ambiguous)`);
+    }
+  }
+  if (squashPruned.length) log(`pruned (squash-merged): ${squashPruned.join(', ')}`);
+  if (leftGone.length) log(`left (gone upstream, unconfirmed): ${leftGone.join(', ')}`);
+
+  // Open-PR state (read-only, digest only).
+  try {
+    const prs = JSON.parse(
+      gh(['pr', 'list', '--state', 'open', '--json', 'number,title,headRefName,mergeable,reviewDecision,isDraft']),
+    );
+    if (prs.length) {
+      log('open PRs:');
+      for (const p of prs) {
+        log(`  #${p.number} ${p.headRefName} [${p.mergeable ?? '?'}/${p.reviewDecision || 'no-review'}${p.isDraft ? '/draft' : ''}] ${p.title}`);
+      }
+    } else {
+      log('open PRs: none');
+    }
+  } catch (err) {
+    log(`open PRs: unavailable (${String(err.message).split('\n')[0]})`);
+  }
+}
+
+function cmdDigest(args, { gh, log }, root) {
+  const idx = args.indexOf('--state');
+  const statePath = idx >= 0 && args[idx + 1] ? args[idx + 1] : path.join(root, '.sdlc-cache', 'last-digest.json');
+
+  let prevNumbers = null;
+  try {
+    if (fs.existsSync(statePath)) {
+      prevNumbers = JSON.parse(fs.readFileSync(statePath, 'utf8')).current ?? null;
+    }
+  } catch {
+    prevNumbers = null;
+  }
+
+  const snapshot = snapshotOpenIssues(gh, 'number,labels');
+  const d = computeDigest(snapshot, prevNumbers);
+
+  log(
+    `depths: ${WORKER_LANES.concat('queued')
+      .map((l) => `${l} ${d.depths[l]}`)
+      .join(' / ')}`,
+  );
+  log(`parked (needs-human): ${d.parked.length ? d.parked.map((n) => `#${n}`).join(', ') : 'none'}`);
+  log(`hold: ${d.hold.length ? d.hold.map((n) => `#${n}`).join(', ') : 'none'}`);
+  if (d.arrivals !== null) {
+    log(`arrivals vs last cycle: ${d.arrivals.length ? d.arrivals.map((n) => `#${n}`).join(', ') : 'none'}`);
+    log(`departures vs last cycle: ${d.departures.length ? d.departures.map((n) => `#${n}`).join(', ') : 'none'}`);
+  } else {
+    log('arrivals vs last cycle: (no prior snapshot)');
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, JSON.stringify({ at: new Date().toISOString(), current: d.current }, null, 2));
+  } catch (err) {
+    log(`digest: could not persist snapshot (${String(err.message).split('\n')[0]})`);
+  }
+}
+
 const USAGE = `sdlc — deterministic SDLC pipeline one-shots
 
-  sdlc claim   <issue>              add ${WIP_LABEL}, print branch + status
-  sdlc advance <issue> <to-stage>   validate + swap stage label, drop ${WIP_LABEL}
-  sdlc context <issue>              branch + status + issue labels/state + PRs
+  Worker-side:
+  sdlc claim    <issue> [<run-id> <lane>] [--verify]  add ${WIP_LABEL} + claim comment; --verify exits 1 on a lost race
+  sdlc advance  <issue> <to-stage>  validate + swap stage label, drop ${WIP_LABEL}
+  sdlc context  <issue>             branch + status + issue labels/state + PRs
   sdlc worktree <issue> [<branch>]  add a sibling git worktree for the branch
-  sdlc comment <issue> <file>       post a body-file comment (plumbing)
+  sdlc comment  <issue> <file>      post a body-file comment (plumbing)
+
+  Dispatcher-side:
+  sdlc gate     [--reap]            per-issue wip-lock ages (timeline-based) → LIVE/REAP/CLEAR
+  sdlc lock     <run-id>            take the dispatcher singleton lock (exits 1 if held)
+  sdlc unlock   <run-id>            release the dispatcher singleton lock
+  sdlc lanes                        per-lane depth + eligibility + ≠1 stage integrity
+  sdlc heal     [<lane>] <issue>    post-worker self-heal check (still locked?)
+  sdlc git-maint                    fetch, ff dev, prune merged branches, PR state
+  sdlc digest   [--state <file>]    depths, parked/hold, arrivals-diff vs last cycle
 
 Stages: ${STAGES.join(' → ')}`;
 
@@ -224,6 +780,13 @@ const COMMANDS = {
   context: cmdContext,
   worktree: cmdWorktree,
   comment: cmdComment,
+  gate: cmdGate,
+  lock: cmdLock,
+  unlock: cmdUnlock,
+  lanes: cmdLanes,
+  heal: cmdHeal,
+  'git-maint': cmdGitMaint,
+  digest: cmdDigest,
 };
 
 /**

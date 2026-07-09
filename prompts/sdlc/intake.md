@@ -12,6 +12,12 @@ You are the **intake worker**. Process **exactly one** issue, then stop.
 ### 1. CLAIM
 Per the [README](README.md) universal loop — lane `stage:intake`, idle reply `INTAKE: idle`.
 
+### 0. MERGE SWEEP (every pass, even when the lane is empty)
+Before claiming: list recently merged PRs (`gh pr list --state merged --limit 10`), and for each
+whose linked issue closed since the last cycle, run your post-merge ritual — cascade-unblock
+dependent issues, confirm labels are clean. Ship ends at "PR open"; the merge fires no worker,
+so this sweep is the only thing that notices it.
+
 ### 2. WORK
 - **Duplicate search**: `gh issue list --search "<feature keywords>" --state all --limit 30
   --json number,title,state`. An existing issue covering the same thing is a close-as-dup.
