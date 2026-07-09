@@ -16,7 +16,13 @@ Bootstraps three things for a new project working with Claude Code / GitHub Copi
    - **graphify** — codebase-to-knowledge-graph tool with a `PreToolUse` nudge hook
      (`.claude/hooks/graphify-nudge.py`) that steers agents to `graphify query` before raw
      grep/read once a graph exists.
-3. **Agentic SDLC setup** — an issue-driven pipeline (`intake → design → queued → build →
+3. **Role-based model routing** — six repo-committed role agents (`scout`, `Explore`,
+   `mech-executor`, `executor`, `verifier`, `security-executor`) pinned to cost tiers via
+   frontmatter, plus a role-only orchestration policy in L1. Adapted from
+   [pilotfish](https://github.com/Nanako0129/pilotfish) (MIT), moved from global to project
+   level so it ships with the repo. See
+   [docs/Development_ModelRouting.md](docs/Development_ModelRouting.md).
+4. **Agentic SDLC setup** — an issue-driven pipeline (`intake → design → queued → build →
    verify → audit → ship`) with a deterministic `sdlc` CLI (`scripts/sdlc.mjs`) for the
    label/branch mechanics, and worker prompts in `prompts/sdlc/`.
 

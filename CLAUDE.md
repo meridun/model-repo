@@ -13,6 +13,10 @@ The instructions above are shared with VS Code Copilot via `.github/copilot-inst
   `npm run sync:claude-config` (or `npm run sync:claude-config:check` to verify they're already in
   sync). CI enforces this.
 - Invoke subagents via the `Agent` tool with `subagent_type` set to the agent name.
+- The role agents (`scout`, `Explore`, `mech-executor`, `executor`, `verifier`,
+  `security-executor`) carry `model`/`effort` frontmatter so delegated work runs on the cheapest
+  adequate tier — see `docs/Development_ModelRouting.md` and the `## Orchestration` policy in the
+  shared instructions above.
 
 ## graphify
 

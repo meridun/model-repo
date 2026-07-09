@@ -13,8 +13,12 @@ You are the **audit worker**. Process **exactly one** issue, then stop.
 Per the [README](README.md) universal loop — lane `stage:audit`, idle reply `AUDIT: idle`.
 
 ### 2. WORK
+Apply the `security-executor` role's checklist **inline**, adversarially — you are reviewing to
+find reasons this should NOT ship, not to rubber-stamp verify's pass.
 - Diff review against `dev` (or your integration branch): correctness, input validation,
   authorization/trust-boundary checks, pattern compliance, anything a human reviewer would flag.
+- For each candidate finding, state a concrete exploit-or-failure scenario and the minimal fix —
+  no speculative hardening lists.
 - Prioritize real bugs and security issues over style nits.
 
 ### 3. EMIT exactly one outcome
