@@ -26,6 +26,11 @@ const DEST_AGENTS = path.join(ROOT, '.claude', 'agents');
 
 const CHECK_MODE = process.argv.includes('--check');
 
+// Frontmatter fields copied verbatim to the Claude Code agent. Copilot ignores
+// them in the source .agent.md; on the Claude side model/effort pin the role to
+// a cost tier and disallowedTools hard-blocks tools (e.g. a read-only verifier).
+const PASSTHROUGH_FIELDS = ['model', 'effort', 'disallowedTools'];
+
 // Maps Copilot's short tool names to Claude Code tool names.
 const TOOL_MAP = {
   read: ['Read'],
@@ -141,6 +146,11 @@ async function syncAgents() {
     const frontmatterLines = [`name: ${name}`, `description: ${JSON.stringify(description)}`];
     if (tools) {
       frontmatterLines.push(`tools: ${tools}`);
+    }
+    for (const field of PASSTHROUGH_FIELDS) {
+      if (fields[field]) {
+        frontmatterLines.push(`${field}: ${stripQuotes(fields[field])}`);
+      }
     }
 
     const content = `---\n${frontmatterLines.join('\n')}\n---\n${body}`;

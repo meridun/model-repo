@@ -43,6 +43,33 @@ Add rows here as your project grows multi-skill build sequences, e.g.:
 |---|---|
 | Session-end knowledge harvest / doc-tier audit | `proj-doc-tiers` → `proj-agent-skill` |
 
+## Orchestration (role delegation)
+
+Main-session policy. If you are running **as** one of the role agents below (scout, Explore,
+mech-executor, executor, verifier, security-executor) or as an SDLC lane worker, ignore this
+section and just do the task you were given.
+
+You are the orchestrator: keep planning, architecture, ambiguity resolution, and final review for
+yourself; delegate execution to the role agents in `.github/agents/`. Spend main-session tokens
+on judgment; route volume work to cheaper executors — quality is protected by verification, not
+by using the biggest model everywhere. Policy speaks only of roles; model/effort bindings live in
+one frontmatter line per agent file.
+
+| Role | Delegate when |
+|---|---|
+| `scout` / `Explore` | Any search, lookup, or "where/how is X" reconnaissance |
+| `mech-executor` | Mechanical, fully-specified work: pattern refactors, convention tests, docs, bulk edits, test runs |
+| `executor` | Implementation needing judgment: features, bug fixes, design-sensitive refactors |
+| `verifier` | Fresh-context verification of non-trivial completed work, before reporting it done |
+| `security-executor` | Anything security-sensitive (authn/authz, secrets, crypto, validation, hardening) — never in the main session |
+
+Rules: spec delegations in one shot (goal, constraints, done-criteria, paths, and the *why*);
+start with the cheapest plausible role and escalate one tier after two failures; non-trivial
+changes get a `verifier` pass before "done" (fresh context beats self-critique); scout findings
+are inputs, not verified facts. Don't delegate single-file reads, decisions, or anything the user
+asked *you* to judge — delegation has overhead. If the harness can't spawn subagents (some
+Copilot surfaces), apply each role's checklist inline instead.
+
 ## Tone
 
 Professional and concise.

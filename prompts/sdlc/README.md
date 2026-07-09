@@ -42,6 +42,9 @@ plumbing wrapper that posts a body the agent already authored.
 2. **WORK** — per the lane file, with these constraints:
    - **Never delegate** — do all work inline, yourself. Don't spawn subagents or background
      tasks; a scheduled worker that yields mid-task strands the item under `sdlc:wip` forever.
+     Where a lane names a role (`verifier`, `security-executor`, …) it names the **stance and
+     checklist you apply inline**, not a subagent to dispatch. Cost-tiering happens one level
+     up: the dispatcher sets each worker's `model` per lane (see `dispatch.md`).
    - **Idempotent** — if the stage's artifact already exists, treat as done; don't redo it.
    - **Tree hygiene** — record the entry branch before any switch and restore it before EMIT.
      Never touch the production branch. Never stash/discard uncommitted human work.

@@ -43,6 +43,12 @@ For each lane in pipeline order (`stage:queued` has no worker):
    eligible → skip, record `<LANE>: skipped (empty)`.
 2. Otherwise spawn one subagent with the lane's worker prompt (read `prompts/sdlc/README.md`
    first, then execute `prompts/sdlc/<lane>.md`). Wait for it to finish before the next lane.
+   **Model tiering** — set the worker's `model` explicitly per lane; never let it inherit the
+   dispatcher's model: `intake`/`design` → mid tier (sonnet-class: triage and routing judgment,
+   no code changes); `build`/`verify`/`audit` → high tier (opus-class: implementation judgment,
+   adversarial verification, security review); `ship` → mid tier (PR mechanics + doc updates).
+   Escalate a lane one tier if its worker BOUNCEs the same issue twice for capability-shaped
+   reasons (not genuinely-broken code).
 3. **Self-heal**: after each worker, check the claimed issue still doesn't carry `sdlc:wip`. If
    it does, resume the worker once to complete EMIT; if it's still locked after that, remove
    `sdlc:wip`, add `sdlc:needs-human`, and comment that it stalled.
