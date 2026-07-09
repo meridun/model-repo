@@ -29,6 +29,9 @@ Per the [README](README.md) universal loop — lane `stage:ship`, idle reply `SH
   `stage:ship` on; the issue closes when the PR merges.
 - **BOUNCE** → `stage:build` if the merge from `dev` hits code conflicts, or opening the PR
   surfaces a missing piece that needs code changes.
+- **PARK** — needs a human decision the pipeline can't make (docs contradict shipped behavior
+  and must be reconciled, or merge policy is unclear). Add `sdlc:needs-human`, remove
+  `sdlc:wip`, comment specifics. Lane stays `stage:ship`.
 
 ### 4. STOP
-One-line result: `SHIP: <#issue> → ADVANCE|BOUNCE — <reason>`
+One-line result: `SHIP: <#issue> → ADVANCE|BOUNCE|PARK — <reason>`
