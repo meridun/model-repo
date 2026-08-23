@@ -61,10 +61,9 @@ Two different delegation regimes, deliberately kept separate:
   `verifier` / `security-executor` stances respectively.
 
 **Dispatcher sizing:** keep the dispatcher itself sonnet-class even though its steps are mostly
-CLI-scripted (`sdlc lock/gate/lanes/git-maint/digest`) — a dispatch failure is systemic (it
+CLI-scripted (`sdlc cycle-prep`, i.e. `mint/maint-lock/lanes/gate/git-maint/…`, then `digest`) — a dispatch failure is systemic (it
 corrupts or stalls every lane, not one issue), which is the wrong place to shave cost. Consider
-haiku only after the remaining judgment steps (worktree sweep, PR conflict scan) are also
-scripted and several clean cycles have been observed.
+haiku only after several clean cycles have been observed.
 
 ## Coexistence with a global pilotfish install
 
