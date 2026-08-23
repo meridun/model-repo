@@ -24,7 +24,8 @@ Bootstraps three things for a new project working with Claude Code / GitHub Copi
    [docs/Development_ModelRouting.md](docs/Development_ModelRouting.md).
 4. **Agentic SDLC setup** — an issue-driven pipeline (`intake → design → queued → build →
    verify → audit → ship`) with a deterministic `sdlc` CLI (`scripts/sdlc.mjs`) for the
-   label/branch mechanics, and worker prompts in `prompts/sdlc/`.
+   label/branch mechanics, worker prompts in `prompts/sdlc/`, and an isolated `sdlc-worker`
+   agent. Fill the `<PLACEHOLDERS>` per `docs/Development_SdlcAdoption.md` before scheduling it.
 
 ## Quick start
 
