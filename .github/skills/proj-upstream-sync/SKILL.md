@@ -84,7 +84,7 @@ migrate components **out** of it. Both sides run this same skill, so the steps a
 
 1. Branch from `dev` in model-repo (`feat/port-<component>-<project>`).
 2. Apply only **Improvement** rows. Generalise on the way: project specifics → `<PLACEHOLDERS>`
-   (add new ones to `docs/Development_SdlcAdoption.md` if SDLC), prefix → `proj-`, drop project
+   (add new ones to `sdlc/PROFILE.md` and `docs/Development_SdlcAdoption.md` if SDLC), prefix → `proj-`, drop project
    names and paths.
 3. Update the component's L3 doc pin (`<source>` = the project repo, sha = its HEAD) and the
    inventory row if paths changed.

@@ -2,12 +2,17 @@
 
 This is the *why* behind the prompts. Read it once; the prompts are self-contained after that.
 
-> **Upstream pin:** ported from [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) at
-> commit **`9161863`** (see this repo's commit `7e8986a`). To re-sync, diff upstream's `prompts/sdlc/`, `scripts/sdlc.mjs`,
-> `test/`, the `sdlc-worker` agent, and its model/composability/labels/adoption docs against the
-> paths listed in the README component inventory, then bump this pin. Local adaptations to
-> preserve: CLI at `scripts/` via `npm run sdlc --`, `PROD_BRANCH=main`, the `proj-doc-tiers`
-> skill, and the verifier/security-executor stances inlined in the verify/audit lanes.
+> **Upstream pin:** [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) **`34b769e`**
+> (2026-09-05). To re-sync, diff upstream's `sdlc/`, `test/`, `agents/sdlc-worker.md`,
+> `docs/{AgenticSDLC,Adoption,Composability}.md`, and `docs/profiles/gh-issue.example.md` against
+> `sdlc/`, `test/`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`, and
+> `docs/Development_Sdlc*.md`, then bump this pin. Local adaptations to preserve: doc pointers
+> renamed to this repo's `docs/Development_*` / `.github/` paths; `PROD_BRANCH=main` in
+> `sdlc/bindings/gh-issue/sdlc.mjs` and the profile; the `proj-doc-tiers` skill name in
+> `sdlc/lanes/ship.md`; the `verifier` / `security-executor` stances inlined in
+> `sdlc/lanes/verify.md` / `audit.md` (declared in `sdlc/PROFILE.md` § Known deviations); the
+> `ado-feature` / `ado-pbi` bindings and their profile examples **declined** (no Azure DevOps
+> downstream yet — revisit when one appears); CI in `.github/workflows/ci.yml` targets `dev`/`main`.
 
 ## The idea
 
@@ -75,9 +80,12 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
    security defect bounces to build; an undecided product question bounces to intake, a spec gap to
    design; a risk
    tradeoff or a "the design itself is wrong" call PARKs to a human via `sdlc:needs-human`. A build
-   blocked by a dependency is a **readiness regression**, not a build failure: flip the item's
-   `ready` label to `blocked` and bounce it to `stage:queued`, so the human throttle gates
-   re-entry when the blocker clears — that gate is what stops a silent queued→build→queued loop.
+   blocked by a dependency is a **readiness regression**, not a build failure: record the
+   dependency as a **native issue-dependency edge** (the item *blocked by* the blocker — the
+   edge, not a label or a prose line, is what the dispatcher's eligibility gate reads; the
+   `blocked`/`ready` labels are derived from it) and bounce the item to `stage:queued`. The edge
+   keeps every lane from claiming the item while the blocker is open, and the human throttle
+   gates re-entry when it clears — that gate is what stops a silent queued→build→queued loop.
    Failures flow to accountability, not in a circle. **And every bounce loop is bounded:** if the
    same issue has already been bounced **twice** between the same two lanes for the same class of
    failure (count the lane's prior `sdlc:emit … BOUNCE` comments on the issue), the third pass
@@ -90,7 +98,7 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
 - `stage:intake` · `stage:design` · `stage:build` · `stage:verify` · `stage:audit` · `stage:ship`
   — the lane an issue is in. **Exactly one per open issue** — the dispatcher's integrity check
   auto-repairs a zero-stage issue to `stage:intake` and parks a multi-stage one (see
-  [Development_SdlcLabels.md](Development_SdlcLabels.md)).
+  [the gh-issue binding's labels.md](../sdlc/bindings/gh-issue/labels.md)).
 - `stage:queued` — **workerless**. The human throttle between design and build: the only gate a human
   must open by hand. What the human reviews there is design's `## Implementation plan` in the issue
   body — approving an *approach*, not just an idea (rejecting a wrong approach at queued costs one
@@ -105,7 +113,7 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
 - `priority:critical` › `priority:medium` › `priority:future` — CLAIM order within a lane, then FIFO by
   creation date.
 
-Full `gh`-scriptable list: [Development_SdlcLabels.md](Development_SdlcLabels.md).
+Full `gh`-scriptable list: [the gh-issue binding's labels.md](../sdlc/bindings/gh-issue/labels.md).
 
 ## Concurrency variants
 
@@ -121,6 +129,20 @@ The template ships the **per-issue** model. A simpler **serial** model exists �
   filesystem lock** (`.git/sdlc-maint.lock`, 30-min stale reap) that serializes only local
   git/worktree/artifact maintenance and never aborts a cycle.
 - A fresh lock only removes *that one issue* from eligibility; it never aborts the cycle.
+- **Shared `node_modules` — the junction convention.** A worktree needs the project's dependency
+  install to run `<TEST_CMD>` / `<LINT_CMD>`, but a per-tree install is minutes and gigabytes each.
+  So the convention is **one root-level `node_modules` junction** (Windows junction — no admin
+  needed; a plain directory symlink elsewhere) pointing at the main checkout's install. Both halves
+  are exported, tested helpers in the gh-issue binding's `sdlc.mjs`: `linkWorktreeNodeModules` creates it in the
+  `worktree` command right after `git worktree add` (idempotent — it never replaces a real
+  `node_modules` or a dangling link, and a link failure logs but never fails worktree creation),
+  and `unlinkWorktreeRootLinks` removes the link — never its target — before `git worktree
+  remove`, because on Windows that command recurses *through* a junction and deletes the target's
+  contents. The shared install is the standing hazard: **never run an install inside a worktree**
+  — it mutates the main checkout and every other junctioned tree. An issue that changes
+  dependencies unlinks the junction (non-recursive — never recursive-delete through it) and
+  installs for real. Existing worktrees converge on the convention as they're swept and recreated;
+  there is deliberately no repair sweep.
 - Best when throughput matters and multiple issues are in flight across lanes.
 
 ### Serial (simpler alternative)
@@ -138,7 +160,7 @@ replace Step 0's per-issue gate with the global abort-or-reap, and run the per-l
 
 **Every triaged item passes through `stage:design`** (the only bypass is work intake finds already
 built, which routes to the earliest absent artifact, floor `stage:verify`). The lane runs two
-tracks with deliberately different human seams (`prompts/sdlc/design.md`):
+tracks with deliberately different human seams (`sdlc/lanes/design.md`):
 
 - the **UX track** (an optional module — only for forks that bind `<DESIGN_ARTIFACTS>` in their
   profile, and only when visual/UX design is still owed): build the competing storyboards/mockups,
