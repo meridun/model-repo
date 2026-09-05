@@ -2,8 +2,8 @@
 
 This is the *why* behind the prompts. Read it once; the prompts are self-contained after that.
 
-> **Upstream pin:** ported from the agentic-sdlc upstream at commit **`9161863`** (see this
-> repo's commit `7e8986a`). To re-sync, diff upstream's `prompts/sdlc/`, `scripts/sdlc.mjs`,
+> **Upstream pin:** ported from [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) at
+> commit **`9161863`** (see this repo's commit `7e8986a`). To re-sync, diff upstream's `prompts/sdlc/`, `scripts/sdlc.mjs`,
 > `test/`, the `sdlc-worker` agent, and its model/composability/labels/adoption docs against the
 > paths listed in the README component inventory, then bump this pin. Local adaptations to
 > preserve: CLI at `scripts/` via `npm run sdlc --`, `PROD_BRANCH=main`, the `proj-doc-tiers`

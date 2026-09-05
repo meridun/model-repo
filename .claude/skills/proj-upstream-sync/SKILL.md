@@ -27,7 +27,11 @@ migrate components **out** of it. Both sides run this same skill, so the steps a
 ## Vocabulary
 
 - **Component** — the unit of comparison. The authoritative list is the **Component inventory**
-  table in model-repo's `README.md`: name, owned paths, provenance. Never diff whole repos.
+  table in model-repo's `README.md`: name, owned paths, dependencies, cherry-pickable sub-units,
+  provenance. Never diff whole repos.
+- **Cherry-pick, not migration.** Downstreams adopt any subset of components and sub-units;
+  absence or partial adoption is a choice, not drift. The only constraint is a component's
+  **Depends on** column — take the dependency too, or substitute and name it in the pin.
 - **Pin** — a `> **Upstream pin:**` blockquote near the top of the component's L3 doc recording
   what the component was last synced against. Components with no L3 doc pin in the inventory row.
 - **Generalised form** — what model-repo holds: `<PLACEHOLDERS>` for project specifics, `proj-`
@@ -85,11 +89,35 @@ migrate components **out** of it. Both sides run this same skill, so the steps a
 
 ### 3. Migrate out (model-repo → project)
 
+Run the **downstream interview** first (below) unless the requester has already answered it.
+
 1. Branch from the project's integration branch.
-2. Apply only **Improvement** rows, re-applying the project's fill-ins and local adaptations.
+2. Apply only **Improvement** rows the interview marked *adopt* or *adapt*, re-applying the
+   project's fill-ins and local adaptations. Record *decline* rows in the pin as local
+   adaptations so the next pass does not re-propose them.
 3. Update the project-side pin (`<source>` = `meridun/model-repo`, sha = model-repo HEAD).
 4. Run the project's equivalents of sync, drift check, and tests.
 5. Commit message: `chore(<component>): migrate <what> from model-repo@<sha>`.
+
+### Downstream interview (before any migrate out)
+
+One round of questions; use the harness's question tool if it has one. Skip questions the
+request already answers.
+
+1. **Scope** — which components from the inventory? Offer: *everything new since the pin* /
+   *these components only* / *audit only, no changes*. Default: components the project already
+   holds (those with a pin).
+2. **Granularity** — for each chosen component with sub-units, all of it or which sub-units?
+   Name the dependencies that come with the choice.
+3. **Not yet adopted** — list components the project lacks, one line each; ask *adopt now* /
+   *skip* / *ask me later*. Never add a component the requester did not pick.
+4. **Per-change disposition** — present the compare table (step 1) and ask for each Improvement
+   row: *adopt* / *adapt* (state the adaptation) / *decline*. Batch small rows; ask individually
+   only where the change is behavioural (new rule, new gate, changed default).
+5. **Pin update** — confirm the pin is bumped to model-repo HEAD even for declined rows (so the
+   decision is recorded), or left as-is if audit only.
+
+Then proceed with the numbered steps above. Report what was adopted, adapted, declined, skipped.
 
 ### 4. Both directions
 
@@ -104,6 +132,9 @@ start the other as a separate change — never mix directions in one commit.
   `.github/` sources and regenerate.
 - **A pin in a commit message is not a pin.** The SDLC port originally recorded its sha only in
   the porting commit and was invisible to later comparison passes. Put it in the doc.
+- **Partial adoption looks like loss.** A project that took only the SDLC spec docs will show
+  "missing" prompts and CLI against the inventory. Check the project's pin and interview answers
+  before calling it drift.
 - **L1 line budget.** `copilot-instructions.md` is capped at ~100 lines; porting a rule into L1
   may require demoting something to L2 first.
 

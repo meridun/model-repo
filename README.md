@@ -19,6 +19,12 @@ project A ──(port in: improved component)──▶ model-repo ──(migrate
    `<PLACEHOLDERS>`, project skill prefix → `proj-`).
 3. Other project repos migrate the new or updated component **from** model-repo when convenient.
 
+**Nothing is forced downstream.** The inventory is a menu, not a manifest: a project repo adopts
+the components it wants, at the granularity it wants (a component's sub-units are listed where
+it splits cleanly), and skips the rest. A partial or absent component in a project is a choice,
+not drift. The only obligation is the **Depends on** column — take a component's dependencies
+with it, or substitute your own and say so in the pin.
+
 Sync is manual and ad hoc — no version negotiation. Three things keep it cheap for an agent:
 
 - **Component inventory** (next section). The unit of comparison is a component, never the whole
@@ -28,7 +34,9 @@ Sync is manual and ad hoc — no version negotiation. Three things keep it cheap
   project repo it names the model-repo commit last migrated from. Diff from the pin, port, bump the
   pin. Components without an L3 doc pin in the inventory row instead.
 - **[`proj-upstream-sync`](.github/skills/proj-upstream-sync/SKILL.md) skill.** The compare/port
-  procedure, shipped to project repos so both sides run the same steps.
+  procedure, shipped to project repos so both sides run the same steps. For a downstream pull it
+  opens with a short interview (which components, how much of each, adopt/adapt/decline per
+  change) so the requester steers the cherry-pick instead of receiving a wholesale migration.
 
 For comparison agents: model-repo holds the *generalised* form. A difference that is a project's
 placeholder fill-in, prefix rename, or documented local adaptation is **not drift**; only a
@@ -36,15 +44,15 @@ substantive improvement (or a bug fix) is a port candidate.
 
 ## Component inventory
 
-| Component | Paths here | Provenance / pin |
-|---|---|---|
-| Doc-tier system (L1/L2/L3) | `.github/copilot-instructions.md`, `CLAUDE.md`, `docs/Documentation.md`, `.github/skills/proj-doc-tiers/`, `.github/skills/proj-agent-skill/` | originated here |
-| Config sync + meta-drift guard | `scripts/sync-claude-config.mjs`, `scripts/check-meta-drift.mjs` | ported from a project repo (script header cites its issues #454/#490); **unpinned** |
-| Caveman mode hook | `.claude/settings.json` (`UserPromptSubmit`) | originated here |
-| graphify nudge hook | `.claude/hooks/graphify-nudge.py`, `.claude/settings.json` (`PreToolUse`), `docs/Development_TokenTools.md` | originated here; graphify itself is external |
-| Role-based model routing | `.github/agents/*.agent.md` (except `sdlc-worker`), `## Orchestration` in L1, `docs/Development_ModelRouting.md` | pilotfish **v1.1.2** — pin in `docs/Development_ModelRouting.md` |
-| Agentic SDLC pipeline | `prompts/sdlc/`, `scripts/sdlc.mjs`, `test/sdlc.test.mjs`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`, `docs/Development_Sdlc*.md` | agentic-sdlc upstream **9161863** — pin in `docs/Development_AgenticSDLC.md` |
-| Upstream sync procedure | `.github/skills/proj-upstream-sync/` | originated here |
+| Component | Paths here | Depends on | Sub-units (cherry-pickable) | Provenance / pin |
+|---|---|---|---|---|
+| Doc-tier system (L1/L2/L3) | `.github/copilot-instructions.md`, `CLAUDE.md`, `docs/Documentation.md`, `.github/skills/proj-doc-tiers/`, `.github/skills/proj-agent-skill/` | — | L1 file alone; either skill alone | originated here |
+| Config sync + meta-drift guard | `scripts/sync-claude-config.mjs`, `scripts/check-meta-drift.mjs` | Node; the `.github/skills` + `.github/agents` layout | sync script alone (drift guard is optional CI) | ported from a project repo (script header cites its issues #454/#490); **unpinned** |
+| Caveman mode hook | `.claude/settings.json` (`UserPromptSubmit`) | Claude Code | — | originated here |
+| graphify nudge hook | `.claude/hooks/graphify-nudge.py`, `.claude/settings.json` (`PreToolUse`), `docs/Development_TokenTools.md` | Claude Code; graphify installed | doc alone (vtk notes) | originated here; graphify itself is external |
+| Role-based model routing | `.github/agents/*.agent.md` (except `sdlc-worker`), `## Orchestration` in L1, `docs/Development_ModelRouting.md` | config sync (or hand-copy agents to `.claude/agents/`) | any subset of roles; policy section without agents | pilotfish **v1.1.2** — pin in `docs/Development_ModelRouting.md` |
+| Agentic SDLC pipeline | `prompts/sdlc/`, `scripts/sdlc.mjs`, `test/sdlc.test.mjs`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`, `docs/Development_Sdlc*.md` | `gh` + GitHub Issues; Node for the CLI only | three layers per `Development_SdlcComposability.md`: normative spec docs only → + worker prompts → + reference CLI; individual lanes | [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) **9161863** — pin in `docs/Development_AgenticSDLC.md` |
+| Upstream sync procedure | `.github/skills/proj-upstream-sync/` | — | — | originated here |
 
 ## Bootstrapping a new repo (template use)
 
