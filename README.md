@@ -52,7 +52,7 @@ substantive improvement (or a bug fix) is a port candidate.
 |---|---|---|---|---|
 | Doc-tier system (L1/L2/L3) | `.github/copilot-instructions.md`, `CLAUDE.md`, `docs/Documentation.md`, `.github/skills/proj-doc-tiers/`, `.github/skills/proj-agent-skill/` | — | L1 file alone; either skill alone | originated here |
 | Config sync + meta-drift guard | `scripts/sync-claude-config.mjs`, `scripts/check-meta-drift.mjs` | Node; the `.github/skills` + `.github/agents` layout | sync script alone (drift guard is optional CI) | ported from a project repo (script header cites its issues #454/#490); **unpinned** |
-| Caveman mode hook | `.claude/settings.json` (`UserPromptSubmit`) | Claude Code | — | originated here |
+| Caveman mode hook | `## Caveman mode` in L1 (canonical), `.claude/settings.json` (`UserPromptSubmit`), rule 4 of `scripts/check-meta-drift.mjs`, `test/meta-drift.test.mjs` | Claude Code (hook); L1 alone for Copilot | L1 section alone (no hook) | originated here; no external dependency — see `docs/Development_TokenTools.md` |
 | graphify nudge hook | `.claude/hooks/graphify-nudge.py`, `.claude/settings.json` (`PreToolUse`), `docs/Development_TokenTools.md` | Claude Code; graphify installed | doc alone (vtk notes) | originated here; graphify itself is external; vtk notes pinned to [meridun/vtk](https://github.com/meridun/vtk) **fc4b1a5** in `docs/Development_TokenTools.md` |
 | Role-based model routing | `.github/agents/*.agent.md` (except `sdlc-worker`), `## Orchestration` in L1, `docs/Development_ModelRouting.md` | config sync (or hand-copy agents to `.claude/agents/`) | any subset of roles; policy section without agents | pilotfish **v1.1.2** — pin in `docs/Development_ModelRouting.md` |
 | Agentic SDLC pipeline | `prompts/sdlc/`, `scripts/sdlc.mjs`, `test/sdlc.test.mjs`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`, `docs/Development_Sdlc*.md` | `gh` + GitHub Issues; Node for the CLI only | three layers per `Development_SdlcComposability.md`: normative spec docs only → + worker prompts → + reference CLI; individual lanes | [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) **9161863** — pin in `docs/Development_AgenticSDLC.md` |
@@ -67,7 +67,7 @@ Generating a repo from this template gives you every component above:
    [docs/Documentation.md](docs/Documentation.md).
 2. **Token optimizer tools**:
    - **Caveman mode** — a `UserPromptSubmit` hook that keeps agent replies terse by default
-     (`.claude/settings.json`).
+     (`.claude/settings.json`; canonical text in L1, drift-checked, no external dependency).
    - **vtk** — a git/gh/npm output-filtering wrapper (bring your own binary; wiring notes in
      [docs/Development_TokenTools.md](docs/Development_TokenTools.md)).
    - **graphify** — codebase-to-knowledge-graph tool with a `PreToolUse` nudge hook

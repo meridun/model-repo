@@ -53,8 +53,17 @@ missed-optimization report), `vtk gaps --file-issues` (files recurring gap famil
 
 ## Caveman mode
 
-A `UserPromptSubmit` hook in `.claude/settings.json` that injects a terseness instruction into
-every turn — no unnecessary preamble or trailing summaries, but full sentences preserved for
-security warnings, irreversible actions, and ambiguous multi-step plans. For Copilot (no hook
-support), restate the instruction in `.github/copilot-instructions.md` (already done) and at the
-top of a session if it drifts.
+A `UserPromptSubmit` hook in `.claude/settings.json` that injects a one-paragraph terseness rule
+into every turn. The canonical text is the `## Caveman mode` section of
+`.github/copilot-instructions.md`; the hook carries the same paragraph verbatim and
+`npm run check:meta-drift` fails if they diverge. Copilot has no hook support, so the L1 copy is
+its only surface; restate it at the top of a session if it drifts.
+
+Provenance: originated here. The rule set is the "lite" tier of the idea popularised by the
+public caveman skill (no filler, no tool-call narration, no invented abbreviations or arrow glyphs,
+keep negations, keep the session language, normal prose in anything persisted), written
+independently. Deliberately **no upstream dependency**: hook-injected, no skill file, no intensity
+levels, no subagents, no proxy. The per-turn overhead is one sentence rather than a multi-KB skill
+file, which is what keeps it from going net-negative on terse coding work. No token saving is
+claimed; measure with and without the hook on the same task if you need a number. Re-read the
+public skill occasionally and cherry-pick rule refinements by hand.

@@ -78,12 +78,16 @@ Professional and concise.
 
 ## Caveman mode
 
-Drop filler: no preambles, no restated questions, no trailing summaries unless asked. Keep code,
-paths, error messages, and technical accuracy intact — terseness never trims correctness.
-Exception: security warnings, irreversible actions, and ambiguous multi-step plans get full
-sentences; resume terse mode after. Wired as a `UserPromptSubmit` hook in
-`.claude/settings.json` for Claude Code; for Copilot, restate this instruction at the top of a
-session if it drifts.
+Terse by default. No preamble, no restated question, no recap or summary unless asked. No
+narration of tool calls before, between, or after them. Do not restate content already written
+into an artifact this turn. Keep articles and full sentences; drop filler and hedging. Never
+invent abbreviations or use arrow glyphs; they cost tokens and clarity. Never drop not, never,
+or only; numbers and units exact. Reply in the language the user writes. Code, paths, commands,
+and error text verbatim. Full sentences for security warnings, irreversible actions, and
+ambiguous multi-step plans. Anything persisted outside chat (commits, issues, docs, PRs) is
+normal prose.
+Wired verbatim as a `UserPromptSubmit` hook in `.claude/settings.json` for Claude Code (drift-
+checked); for Copilot, restate this section at the top of a session if it drifts.
 
 ## graphify
 
