@@ -31,7 +31,8 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS_DIR = path.join(ROOT, '.github', 'skills');
 const AGENTS_DIR = path.join(ROOT, '.github', 'agents');
-const SDLC_PROMPTS_DIR = path.join(ROOT, 'prompts', 'sdlc');
+const SDLC_DIR = path.join(ROOT, 'sdlc');
+const SDLC_LANES_DIR = path.join(SDLC_DIR, 'lanes');
 const COPILOT_INSTRUCTIONS = path.join(ROOT, '.github', 'copilot-instructions.md');
 const CLAUDE_SETTINGS = path.join(ROOT, '.claude', 'settings.json');
 
@@ -139,7 +140,8 @@ async function listFiles(dir, filter) {
 /** Files whose proj-* references must all resolve. */
 async function referenceSources() {
   const files = [
-    ...(await listFiles(SDLC_PROMPTS_DIR, (n) => n.endsWith('.md'))),
+    ...(await listFiles(SDLC_DIR, (n) => n.endsWith('.md'))),
+    ...(await listFiles(SDLC_LANES_DIR, (n) => n.endsWith('.md'))),
     ...(await listFiles(AGENTS_DIR, (n) => n.endsWith('.agent.md'))),
   ];
   try {
