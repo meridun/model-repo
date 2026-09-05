@@ -38,6 +38,10 @@ migrate components **out** of it. Both sides run this same skill, so the steps a
   as the skill/agent prefix, no project names, paths, or commands.
 - **Local adaptation** — a deliberate project-side deviation, named in the project's pin so the
   next sync preserves it instead of flagging it.
+- **Adoption record** — a project-side table (suggested: `## Shared config` in the project's
+  `README.md`) with one row per model-repo component: *adopted* / *partial (which sub-units)* /
+  *declined*, the pin, and a one-line reason for anything not fully adopted. Declined rows are
+  first-class: they exist so the decision can be revisited, not buried.
 
 ## Pin format
 
@@ -95,7 +99,9 @@ Run the **downstream interview** first (below) unless the requester has already 
 2. Apply only **Improvement** rows the interview marked *adopt* or *adapt*, re-applying the
    project's fill-ins and local adaptations. Record *decline* rows in the pin as local
    adaptations so the next pass does not re-propose them.
-3. Update the project-side pin (`<source>` = `meridun/model-repo`, sha = model-repo HEAD).
+3. Update the project-side pin (`<source>` = `meridun/model-repo`, sha = model-repo HEAD) and
+   the adoption record (create it on first pull if absent — seed it from the inventory, one row
+   per component, status from what the project actually holds).
 4. Run the project's equivalents of sync, drift check, and tests.
 5. Commit message: `chore(<component>): migrate <what> from model-repo@<sha>`.
 
@@ -109,13 +115,21 @@ request already answers.
    holds (those with a pin).
 2. **Granularity** — for each chosen component with sub-units, all of it or which sub-units?
    Name the dependencies that come with the choice.
-3. **Not yet adopted** — list components the project lacks, one line each; ask *adopt now* /
-   *skip* / *ask me later*. Never add a component the requester did not pick.
+3. **Pitch and revisit** — always, even when the request names specific components:
+   - **New since last pull**: components (and new sub-units of adopted components) the project
+     has never decided on. Pitch each in one line — what it does, what it depends on, cost to
+     adopt. Ask *adopt now* / *decline* / *later*.
+   - **Previously declined or partial**: read the adoption record and list every declined or
+     partial row with its recorded reason. Ask whether the reason still holds; offer *keep
+     declined* / *adopt now* / *expand partial*. Needs change; the record exists to be re-opened.
+   Never install a component the requester did not pick in this round; *later* leaves the
+   record untouched.
 4. **Per-change disposition** — present the compare table (step 1) and ask for each Improvement
    row: *adopt* / *adapt* (state the adaptation) / *decline*. Batch small rows; ask individually
    only where the change is behavioural (new rule, new gate, changed default).
-5. **Pin update** — confirm the pin is bumped to model-repo HEAD even for declined rows (so the
-   decision is recorded), or left as-is if audit only.
+5. **Record update** — confirm the pin is bumped to model-repo HEAD even for declined change
+   rows, and that the adoption record gains or updates a row for every component decided on in
+   step 3 (including *declined*, with the stated reason). Audit only: no changes.
 
 Then proceed with the numbered steps above. Report what was adopted, adapted, declined, skipped.
 
@@ -133,8 +147,11 @@ start the other as a separate change — never mix directions in one commit.
 - **A pin in a commit message is not a pin.** The SDLC port originally recorded its sha only in
   the porting commit and was invisible to later comparison passes. Put it in the doc.
 - **Partial adoption looks like loss.** A project that took only the SDLC spec docs will show
-  "missing" prompts and CLI against the inventory. Check the project's pin and interview answers
-  before calling it drift.
+  "missing" prompts and CLI against the inventory. Check the adoption record before calling it
+  drift.
+- **Silent opt-outs rot.** A declined component with no recorded reason cannot be re-pitched
+  honestly ("you declined this" vs. "you declined this because X, which no longer applies").
+  Always capture the reason, even if it is "not needed yet".
 - **L1 line budget.** `copilot-instructions.md` is capped at ~100 lines; porting a rule into L1
   may require demoting something to L2 first.
 

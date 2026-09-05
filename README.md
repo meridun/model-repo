@@ -23,7 +23,9 @@ project A ──(port in: improved component)──▶ model-repo ──(migrate
 the components it wants, at the granularity it wants (a component's sub-units are listed where
 it splits cleanly), and skips the rest. A partial or absent component in a project is a choice,
 not drift. The only obligation is the **Depends on** column — take a component's dependencies
-with it, or substitute your own and say so in the pin.
+with it, or substitute your own and say so in the pin. Projects keep an **adoption record** (a
+`## Shared config` table in their README: component → adopted / partial / declined → pin →
+reason) so decisions, including opt-outs, are explicit and revisitable.
 
 Sync is manual and ad hoc — no version negotiation. Three things keep it cheap for an agent:
 
@@ -37,6 +39,8 @@ Sync is manual and ad hoc — no version negotiation. Three things keep it cheap
   procedure, shipped to project repos so both sides run the same steps. For a downstream pull it
   opens with a short interview (which components, how much of each, adopt/adapt/decline per
   change) so the requester steers the cherry-pick instead of receiving a wholesale migration.
+  Every pull also pitches components new since the last one and re-surfaces previously declined
+  or partial ones with their recorded reason, so opt-outs stay revisitable as needs change.
 
 For comparison agents: model-repo holds the *generalised* form. A difference that is a project's
 placeholder fill-in, prefix rename, or documented local adaptation is **not drift**; only a
