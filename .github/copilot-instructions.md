@@ -98,7 +98,7 @@ before grep or raw reads. It returns a scoped subgraph, usually far smaller than
 
 ## Token wrappers
 
-If you adopt `vtk` (output-filtering wrapper for `git`/`gh`/your package manager — see
-`docs/Development_TokenTools.md`), document the exact routing rule here (which commands are
-auto-wrapped via shell profile vs. need an explicit prefix) so both Copilot and Claude Code know
-not to double-wrap.
+`vtk` (see `docs/Development_TokenTools.md`) is wired at the tool-call layer (`vtk hooks init`)
+and/or shell layer (`vtk install`): plain top-level `git`/`gh`/`npm`/`winget`/`choco`/`reg`
+(hook also `grep`/`ls`/`find`) are wrapped automatically. Never prefix `vtk` yourself — no
+double-wrapping. Pipes and chains run unwrapped by design; `vtk show <id>` recovers raw output.
