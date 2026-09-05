@@ -2,7 +2,7 @@
   "name": "model-repo",
   "version": "0.0.1",
   "private": true,
-  "description": "Template: doc-tier bootstrap, token optimizer tools, agentic SDLC setup",
+  "description": "Upstream hub for shared repo config (doc tiers, token tools, model routing, agentic SDLC); also a template",
   "type": "module",
   "scripts": {
     "sync:claude-config": "node scripts/sync-claude-config.mjs",

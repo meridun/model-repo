@@ -2,6 +2,13 @@
 
 This is the *why* behind the prompts. Read it once; the prompts are self-contained after that.
 
+> **Upstream pin:** ported from [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) at
+> commit **`9161863`** (see this repo's commit `7e8986a`). To re-sync, diff upstream's `prompts/sdlc/`, `scripts/sdlc.mjs`,
+> `test/`, the `sdlc-worker` agent, and its model/composability/labels/adoption docs against the
+> paths listed in the README component inventory, then bump this pin. Local adaptations to
+> preserve: CLI at `scripts/` via `npm run sdlc --`, `PROD_BRANCH=main`, the `proj-doc-tiers`
+> skill, and the verifier/security-executor stances inlined in the verify/audit lanes.
+
 ## The idea
 
 A backlog of GitHub issues, each carrying a `stage:` label, is a state machine. A **coding agent**
