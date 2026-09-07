@@ -16,6 +16,7 @@ This is the *why* behind the prompts. Read it once; the prompts are self-contain
 
 > **Port record:** prompt refinements, bounce summary, and helper tests ported from
 > [meridun/IsekaiOnline](https://github.com/meridun/IsekaiOnline) **78492873f** (2026-09-07).
+> Rationale and lessons-learned sections ported from the same source **78492873f** (2026-09-07).
 
 ## The idea
 
@@ -96,6 +97,28 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
    two full round-trips didn't converge needs a human, not a third automated attempt. (This is the
    inter-worker mirror of the dispatcher's resume-once-then-park self-heal.)
 
+**Two corollaries worth naming.** *(a)* The lock has two halves: the `sdlc:wip` label is the
+visibility signal, the `sdlc:claim <run-id> <lane>` comment is the ownership record and race
+tiebreaker (earliest claim — then lexicographically lower run-id — wins; the loser walks away and
+marks its own claim `(superseded)`). The issue-scoped worktree is a third layer: git's
+one-checkout-per-branch rule turns a failed `worktree add` into a lost race. Assigning the issue to
+a bot identity is cheap belt-and-braces on top. *(b)* Keep the human throttle **manual** while the
+pipeline is still shaking out kinks — automating the puller is the last thing to do, if ever.
+
+## Three orthogonal vocabularies — do not confuse them
+
+Most backlogs already carry two axes before this pipeline arrives. This doc adds a third. Keep the
+three in distinct label namespaces so a reader never mistakes one for another:
+
+| Vocabulary | Question it answers | Values | Owner |
+|---|---|---|---|
+| Engineering readiness | _Can this issue be worked yet?_ | ready · blocked · closed — **source of truth: the tracker's native issue-dependency edges** (*blocked by*); any roadmap column and the `ready`/`blocked` labels are mirrors, the labels derived by `sdlc deps --apply` | your backlog/roadmap |
+| Design maturity | _How settled is the idea?_ | proposed · building · live | your design pipeline |
+| **Queue position** (this doc) | _Which stage's worker should touch it next?_ | `stage:*` labels | this doc |
+
+Queue position is a `stage:` **label namespace** — textual, no emoji — specifically so it never
+visually collides with a maturity or readiness axis rendered with icons.
+
 ## The label protocol
 
 - `stage:intake` · `stage:design` · `stage:build` · `stage:verify` · `stage:audit` · `stage:ship`
@@ -117,6 +140,25 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
   creation date.
 
 Full `gh`-scriptable list: [the gh-issue binding's labels.md](../sdlc/bindings/gh-issue/labels.md).
+
+**Four ineligibility axes, re-evaluated fresh every cycle.** A lane's depth is not its eligible
+count: an issue is skipped while it carries a live `sdlc:wip`, `sdlc:needs-human`, or `sdlc:hold`,
+**or has any open blocker on a native issue-dependency edge**. The dependency axis is the one
+that's easy to leave out — without it a `blocked` item sits in `stage:build` fully claimable, and
+matching prose `Depends on` lines by regex instead reads "does not depend on ..." as an edge.
+Edges, not labels and not prose, are authoritative: the `blocked`/`ready` labels are *derived*
+from edge state (`sdlc deps --apply`, which also lints a label with no edge behind it and any
+dependency cycle), `sdlc deps --migrate` converts legacy prose lines into real edges once, and any
+prose that stays is a human mirror. Because the gate re-reads live edges each cycle, closing a
+blocker unblocks its dependents on the next cycle with no sweep involved. `sdlc lanes` appends a
+`(hold N, needs-human N, wip N)` breakdown whenever depth exceeds eligibility, so a snapshot bug
+is distinguishable from expected ineligibility without extra queries.
+
+Flags are **orthogonal to the lane**: they gate whether a worker may claim the issue, never which
+lane it belongs to. That is what makes `sdlc:hold` useful — you can hand-work an issue without
+pulling it out of its queue position. The `sdlc:` prefix marks the control-plane flags as
+machine-owned and volatile (`sdlc:hold` and `sdlc:needs-human` excepted: humans own those, and no
+automation ever clears them).
 
 ## Concurrency variants
 
@@ -183,6 +225,34 @@ Product/scope questions stay at intake as **decision debates** — intake PARKs 
 framed in-issue, the human decides, and intake records a `<DECISION_RECORD>` one-liner before
 routing onward. Design owns the UX pick and the plan; intake owns whether/what to build at all.
 
+## Where artifacts live — branches are created lazily
+
+The issue is the spine, but committed artifacts need a branch. A worker creates one **only when it
+first has something to commit** — branches are lazy, never pre-allocated — and different stages own
+different branches with different lifecycles:
+
+| Stage | Commits? | Branch | Merges to `<DEFAULT_BRANCH>` |
+|---|---|---|---|
+| intake | no — reads, relabels, edits issue-body sections | — | — |
+| design | yes, when the UX track runs — storyboards and design-index edits (the implementation plan itself lives in the issue body, not on a branch) | `docs/<issue>-design` | **fast**, at the design→queued seam |
+| build | yes — the implementation | `feat/<issue>-<slug>` (off `<DEFAULT_BRANCH>`) | at ship, via the PR |
+
+**Two branches, not one,** because the two artifact types have different audiences. Design
+artifacts are **shared reference** — a design index has to be true for everyone — so they cannot
+ride an unmerged feature branch for the weeks a build takes; they merge on their own short-lived
+docs branch. The implementation branch is cut afterward, so it already contains the merged design.
+Design-exempt items (no design artifacts) simply get their first branch at build. Intake never
+branches because it never commits.
+
+**Items built _outside_ the pipeline have no branch — workers fall back to `<DEFAULT_BRANCH>`.**
+Work that was implemented and merged by hand before the pipeline ever saw it enters at intake and
+routes to the earliest lane whose artifact is genuinely missing (floor `stage:verify`), but there
+is no feature branch for the downstream workers to check out. Each carries a **no-branch
+fallback**: verify validates against `<DEFAULT_BRANCH>` and names the introducing commit; audit
+reconstructs the isolated change diff from that commit, scoped to the issue's files; ship cuts a
+fresh branch carrying only the still-missing artifacts (docs fan-out plus any test the earlier
+stages left uncommitted) for a docs/tests-only `Closes #<issue>` PR.
+
 ## Why the issue thread is the only state
 
 Everything a downstream stage needs, the upstream stage writes onto the issue. **Durable artifacts
@@ -198,3 +268,141 @@ questions, build's branch name, verify's report and evidence, audit's findings. 
 their own body sections. A worker reconstructs its entire
 context from `gh issue view` + the branch. This is what lets the whole thing survive process death,
 run headless on a cron, and be debugged by a human reading one issue top to bottom.
+
+## Manual ↔ scheduled (zero rewrite)
+
+Every stage runs the same loop, and both modes run the **identical** lane prompt body — it doesn't
+know or care what fired it. That sameness is the point: a manual paste becomes a cron job with no
+rewrite, and a cron job can be debugged by pasting the same file into a session.
+
+- **Scheduled.** [`sdlc/dispatch.md`](../sdlc/dispatch.md) is a thin dispatcher, not an
+  orchestrator: per-issue wip gate (reap stale locks only, verify-before-write), machine-locked
+  git + worktree maintenance, a stage-label integrity check, then one worker spawned per non-empty
+  lane in a single concurrent batch. Each worker reads the universal loop and executes its
+  [`sdlc/lanes/`](../sdlc/lanes/) file once in an issue-scoped worktree, ending its reply with the
+  fenced JSON result block (`{issue, outcome, next_stage, notes}`) the dispatcher consumes — so
+  self-heal and digest read structured data instead of parsing prose, and a missing or malformed
+  block is a recorded contract violation with prose fallback.
+- **Manual.** Paste a lane prompt into a session; it does one item, minting its own run-id for the
+  claim comment. Claims deconflict per issue, so manual and scheduled runs coexist — which makes
+  manual the right mode for exercising an unproven tail before trusting it to the clock.
+
+The **stage-label integrity check** is a hand-edit backstop, not a duplicate of the CLI's
+transition validation. The invariant is *exactly one lane label per open issue*: zero makes an
+issue invisible to every lane forever (a triage escapee), two makes it eligible in two lanes at
+once. The dispatcher counts labels in the snapshot it already holds — no new query — and repairs a
+zero-stage issue to `stage:intake` (re-entering at the front for re-routing) or parks a
+multi-stage one, leaving its labels untouched because a snapshot can't adjudicate the right stage.
+The CLI never creates either state; labels edited by hand or by outside tooling still can, so the
+runtime check stays.
+
+## Why there's a CLI — and what each one-shot buys
+
+The recurring part of the worker loop is **not** judgment — it is the same label-swap plus git
+context dance every pass, and hand-typing `stage:verfy` silently corrupts a lane.
+[`sdlc`](../sdlc/bindings/gh-issue/sdlc.mjs) collapses that ritual into named one-shots; the agent
+still writes every comment and report **body**, and the CLI only does the mechanical label and
+branch math. Two design rules carry the safety load: each command's core is a **pure function**
+exported and unit-tested with the tracker/git executors injected, so dispatch logic is verified
+with no side effects; and the core **throws rather than guesses** — an issue with zero, multiple,
+or unknown lane labels routes to a human instead of being interpreted.
+
+- **`advance` / `emit` — the typo-killer.** Every requested transition is validated against a
+  hard-coded stage graph (the forward lanes plus the documented bounces), and an illegal jump or a
+  misspelled target exits non-zero with *no* mutation. `sdlc:wip` is removed only when actually
+  present, and removes precede adds so a lane is never momentarily label-less.
+- **`emit` — the completion signal.** It is a worker's only legal way to finish an item: one
+  machine-parseable marker comment plus the outcome's label math, atomically. The claim boundary
+  is the newest `sdlc:wip` *unlabeled* timeline event (with the emit marker as fallback) rather
+  than a regex over prose — a prose-only outcome comment settles nothing, which is the phantom-lock
+  bug: a finished worker's claim looks live forever, every later claimer falsely loses the race and
+  walks away leaving the lock it just added, until the stale reap. `emit` also refuses to run when
+  the caller's run-id doesn't own the live claim.
+- **`claim --next` — the pick rule lives in code.** Workers stop eyeballing priority/FIFO order:
+  the CLI computes the next eligible issue, claims it atomically, retries the next one on a lost
+  race, and exits `idle` on an empty lane.
+- **`cycle-prep` — one delimited report per cycle.** The pre-dispatch sequence
+  (mint → maint-lock → lanes → gate --reap → deps → sweep → git-maint → worktree-sweep →
+  conflict-scan → maint-release) is fixed and zero-judgment, so it collapses into one command
+  emitting one machine-readable report; the dispatcher then spends its round-trips on the only
+  real decision, which workers to spawn. It is a **composer, not a reimplementation** — each
+  section literally invokes the standalone subcommand, so their invariants and tests carry over
+  and every command stays independently callable. The maintenance trio runs only while this run
+  holds the maintenance lock and releases it in a `finally`; a lock held elsewhere is *reported and
+  skipped*, never a cycle failure. It cannot run from inside a worktree (the lock is a directory
+  under a real `.git`), which is why the dispatcher only ever runs it in the main checkout.
+- **`maint-lock` / `maint-release` — serialize the local half only.** Tracker writes are
+  idempotent and deconflict themselves; the filesystem does not. The per-machine lock covers
+  git/worktree/artifact maintenance and nothing else, and *held* means skip, never abort.
+- **`worktree-sweep` — reap what is provably done.** A tree is removed only when it is **clean**
+  *and* **done** — branch gone, ancestry-merged, PR merged, or issue closed. Positive "landed"
+  signals only, so a fresh unpushed branch is never swept; dirty or still-active trees are left and
+  reported; an unreadable tree is treated as dirty and fails closed. The sibling-name pattern
+  (`<WORKTREE_ROOT>/<issue#>`, digit-only suffix) is the destructive path's safety boundary — the
+  main checkout and human worktrees can never match it. Worktree creation links the shared
+  `node_modules` junction and the sweep unlinks it *before* removal (see
+  [Concurrency variants](#per-issue-shipped-default) for why that ordering is load-bearing).
+- **Stray tolerance.** A single 0-byte untracked file — a mangled result line pasted into a shell
+  and normalized into a `>` redirect — used to make an otherwise-reapable tree read dirty forever.
+  A tree now counts as "clean modulo strays" only when *every* status entry is untracked *and*
+  every such path is exactly 0 bytes; any tracked change, any untracked file with content, a
+  quoted special-character path, or an unreadable path stays dirty. Vetted strays are deleted
+  non-recursively (never a directory, which would fail closed) on the apply path only.
+- **`conflict-scan` — nudge once per integration-branch advance.** For each open PR that conflicts
+  with `<DEFAULT_BRANCH>`, resolve the linked issue, skip locked/parked/held/closed ones, and
+  either comment or comment-and-bounce to `stage:build` (conflict resolution is build's lane).
+  Idempotency is a **watermark compare**, not a dedup set: the last conflict comment's timestamp is
+  checked against the integration branch's tip commit date, so a stuck conflict is re-nudged once
+  per advance rather than every cycle, and a resolved-then-reopened conflict is still flagged. The
+  scan never merges, updates, or closes a PR — that stays human-gated, mirroring the queued
+  throttle and the human merge at the tail.
+- **`sweep` — read and ack are separate commands.** Reporting the "these closes unblocked these
+  issues" work-list mutates nothing, so a dispatcher or a human can peek without consuming it; the
+  bounded swept marker is written only by `sweep --ack`, which intake runs *after* completing the
+  unblock edits. A worker that dies in between re-lists the same closes next pass — at-least-once
+  delivery paired with idempotent edits.
+- **`dup-check` — a deterministic scorer instead of eyeballing a list.** Title hits weigh 3, body
+  hits 1, a label-token hit +1; ranked descending, ties by issue number ascending. The exit code is
+  the consumer contract (**0** clean, **2** candidates found, **1** usage error) so callers branch
+  on it without parsing prose. The free-text query never reaches a shell — it feeds only the pure
+  scorer, while the issue listing uses a fixed argv with no query interpolation. Worth copying for
+  any future search subcommand.
+- **`deps` / `deps --migrate` — the dependency axis, kept in edges.** See the ineligibility axes
+  under [the label protocol](#the-label-protocol): labels are derived, prose is a mirror, edges are
+  the truth.
+
+## Lessons from production runs
+
+Each line is an observed failure and the rule it produced.
+
+- A worker spawned a subagent to do its stage → the subagent ran detached and stranded the item:
+  workers get no agent-spawning tool; "owner skill X" means apply X's checklist inline.
+- Lock age was read from the issue's `updatedAt` → an unrelated comment made a stale lock look
+  fresh: age comes from the `sdlc:wip` `labeled` timeline event, nothing else.
+- A finished worker's prose outcome comment left its claim looking live → every later claimer lost
+  a phantom race: the claim boundary is the `sdlc:wip` unlabeled event, and `emit` is the only
+  legal finish.
+- A worker hand-picked the "next" issue in its lane and took the wrong one → the pick rule moved
+  into `claim --next`.
+- A worktree sweep recursed *through* a `node_modules` junction and emptied the shared install:
+  unlink the junction before `git worktree remove`, and never install inside a worktree.
+- A 0-byte stray file kept a finished worktree "dirty" forever → strays are classified, not
+  guessed at.
+- Blocking lived in prose and labels → the eligibility gate ignored it and a regex read "does not
+  depend on ..." as an edge: native dependency edges became the source of truth.
+- A conflicted PR was re-nudged every hourly cycle → watermark the nudge against the integration
+  branch's tip.
+- A dispatcher singleton serialized whole cycles → an overrunning cycle aborted the next one
+  wholesale: per-issue claims plus a per-machine maintenance lock replaced it.
+- The dispatcher parsed issue numbers out of freeform worker replies and missed some → workers end
+  with a fenced JSON result block, and lane-level self-heal auto-discovers stalled items.
+- An item ping-ponged between two lanes indefinitely → the third bounce of the same class parks
+  for a human.
+- Hand-edited labels produced zero-stage and dual-stage issues the CLI could never create → the
+  dispatcher's integrity check stays as a runtime backstop.
+
+What the chain runs themselves proved: one item ran the full spine end to end (every worker's
+ADVANCE path, plus PARK from design and from verify), and one already-built item proved the
+outside-pipeline entry and the downstream no-branch fallbacks. Most BOUNCE tails and build's
+CONTINUE stay thinly exercised — run those by hand before trusting them to the clock. The lanes,
+not this list, are canonical for behavior: every lesson above is already folded into them.
