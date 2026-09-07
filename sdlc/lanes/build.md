@@ -107,7 +107,8 @@ usually sound; most build failures are implementation or readiness, not "the des
   Use this instead of a bounce when the only problem is "ran out of road," not "wrong lane."
 
 ### 4. STOP
-One-line result:
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
 `BUILD: <#issue> → ADVANCE(verify)|BOUNCE(queued|design|intake)|PARK|CONTINUE — <reason>`.
 
 ---

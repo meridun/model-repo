@@ -133,7 +133,7 @@ for *missing inputs* mid-phase: parked items beg for an answer; queued items sit
      fails because the branch is checked out elsewhere, treat it as a lost claim race — release the
      lock (an EMIT is not owed; just drop `sdlc:wip` per the binding) and move on. Do all
      git/build/test work inside the worktree; never stash, discard, or overwrite files in the main
-     tree.
+     tree. Read-only lanes (intake, audit) may skip the worktree.
    - **Shared dependency install — never `npm install` (or the ecosystem equivalent) inside a
      worktree.** The reference CLI's `worktree` command junctions the new tree's root
      `node_modules` to the main checkout's install, so `<TEST_CMD>` and `<LINT_CMD>` work
@@ -161,7 +161,9 @@ for *missing inputs* mid-phase: parked items beg for an answer; queued items sit
 
    **Bounce cap (bounded loops).** Before EMITting a BOUNCE, read the issue's outcome history
    (`history`) for this lane's prior BOUNCEs to the same target lane for the same class of
-   failure. Two already there → PARK instead (`sdlc:needs-human`), summarizing the loop history
+   failure. Where the binding's core offers it, don't tally by hand: `sdlc context <issue>` prints
+   the per-pair counts on its `bounces:` line. The counts are machine-computed; judging the *class*
+   stays yours — the CLI can't. Two already there → PARK instead (`sdlc:needs-human`), summarizing the loop history
    (each bounce's reason and what the fixing lane did) so the human sees why it isn't converging.
    Two full round-trips that didn't converge won't converge on the third automated attempt. A
    bounce for a *different* failure class (e.g. earlier bounces were red tests, this one is a

@@ -13,10 +13,12 @@ import fs from 'fs';
 
 import {
   DEFAULT_BRANCH,
+  PROD_BRANCH,
   STAGES,
   STAGE_GRAPH,
   WIP_LABEL,
   WIP_STALE_MS,
+  MAINT_STALE_MS,
   SdlcError,
   isValidStage,
   isValidTransition,
@@ -24,13 +26,22 @@ import {
   planAdvance,
   planEmit,
   EMIT_OUTCOMES,
+  summarizeBounces,
   runSdlc,
+  stagesOf,
+  priorityRank,
+  planGate,
+  planMaintLock,
   planClaimVerify,
+  lastLabeledAt,
   lastUnlabeledAt,
   computeLanes,
   laneIneligibilityBreakdown,
+  planHeal,
   planHealLane,
   mintRunId,
+  planBranchPrune,
+  parseGoneBranches,
   parseWorktrees,
   planWorktreeSweep,
   unlinkWorktreeRootLinks,
@@ -274,6 +285,169 @@ describe('planEmit', () => {
   });
 });
 
+describe('summarizeBounces (bounce cap)', () => {
+  const bounce = (runId, to, createdAt) => ({
+    body: `sdlc:emit ${runId} BOUNCE → stage:${to}`,
+    createdAt,
+  });
+
+  it('returns nothing for empty or missing input', () => {
+    assert.deepEqual(summarizeBounces([]), []);
+    assert.deepEqual(summarizeBounces(null), []);
+  });
+
+  it('counts same-pair bounces, deriving the source lane from the run-id', () => {
+    const comments = [
+      bounce('dispatch-20260823-1707-ce23-verify', 'build', '2026-08-23T10:00:00Z'),
+      bounce('dispatch-20260823-1807-aa11-verify', 'build', '2026-08-23T12:00:00Z'),
+    ];
+    assert.deepEqual(summarizeBounces(comments), [{ from: 'verify', to: 'build', count: 2 }]);
+  });
+
+  it('ignores non-BOUNCE markers and prose that merely mentions a bounce', () => {
+    const comments = [
+      { body: 'sdlc:emit run-a ADVANCE → stage:verify', createdAt: '2026-08-23T10:00:00Z' },
+      { body: 'sdlc:emit run-b PARK', createdAt: '2026-08-23T10:05:00Z' },
+      { body: 'sdlc:emit run-c CONTINUE', createdAt: '2026-08-23T10:10:00Z' },
+      {
+        body: 'sdlc:emit run-d ADVANCE → stage:audit\n\nprior sdlc:emit run-x BOUNCE → stage:build was fixed',
+        createdAt: '2026-08-23T10:15:00Z',
+      },
+      { body: 'sdlc:claim run-e build', createdAt: '2026-08-23T10:20:00Z' },
+    ];
+    assert.deepEqual(summarizeBounces(comments), []);
+  });
+
+  it('marks an unrecognizable lane or a missing target as ?', () => {
+    const comments = [
+      bounce('handrolled', 'design', '2026-08-23T10:00:00Z'),
+      { body: 'sdlc:emit dispatch-20260823-1707-ce23-audit BOUNCE', createdAt: '2026-08-23T11:00:00Z' },
+    ];
+    assert.deepEqual(summarizeBounces(comments), [
+      { from: '?', to: 'design', count: 1 },
+      { from: 'audit', to: '?', count: 1 },
+    ]);
+  });
+
+  it('accepts the ASCII arrow fallback alongside the Unicode arrow cmdEmit writes', () => {
+    const comments = [
+      { body: 'sdlc:emit run-a-verify BOUNCE -> stage:build', createdAt: '2026-08-23T10:00:00Z' },
+      bounce('run-b-verify', 'build', '2026-08-23T11:00:00Z'),
+    ];
+    assert.deepEqual(summarizeBounces(comments), [{ from: 'verify', to: 'build', count: 2 }]);
+  });
+
+  it('orders pairs by count desc, then from, then to', () => {
+    const comments = [
+      bounce('r1-audit', 'build', '2026-08-23T10:00:00Z'),
+      bounce('r2-verify', 'build', '2026-08-23T11:00:00Z'),
+      bounce('r3-verify', 'build', '2026-08-23T12:00:00Z'),
+      bounce('r4-build', 'design', '2026-08-23T13:00:00Z'),
+    ];
+    assert.deepEqual(summarizeBounces(comments), [
+      { from: 'verify', to: 'build', count: 2 },
+      { from: 'audit', to: 'build', count: 1 },
+      { from: 'build', to: 'design', count: 1 },
+    ]);
+  });
+});
+
+describe('runSdlc context (bounce advisory)', () => {
+  const COMMENTS_KEY = 'issue view 7 --json comments --jq [.comments[] | {body: .body, createdAt: .createdAt}]';
+  const contextGh = (comments) => {
+    const responses = {
+      'issue view 7 --json number,title,state,labels':
+        JSON.stringify({ number: 7, title: 'T', state: 'OPEN', labels: [{ name: 'stage:build' }] }),
+      'pr list --head feat/7 --json number,title,state': '[]',
+    };
+    if (comments !== undefined) responses[COMMENTS_KEY] = comments;
+    return fakeExec(responses);
+  };
+  const git = fakeExec({ 'rev-parse --abbrev-ref HEAD': 'feat/7\n', 'status --short': '' });
+
+  it('reports the per-pair bounce counts', () => {
+    const gh = contextGh(JSON.stringify([
+      { body: 'sdlc:emit r1-verify BOUNCE → stage:build', createdAt: '2026-08-23T10:00:00Z' },
+      { body: 'sdlc:emit r2-verify BOUNCE → stage:build', createdAt: '2026-08-23T11:00:00Z' },
+    ]));
+    const logs = [];
+    runSdlc(['context', '7'], { gh, git, log: (m) => logs.push(m) });
+    assert.ok(logs.includes('bounces: verify→build ×2'), logs.join('\n'));
+  });
+
+  it('reports none when the issue never bounced', () => {
+    const logs = [];
+    runSdlc(['context', '7'], { gh: contextGh('[]'), git, log: (m) => logs.push(m) });
+    assert.ok(logs.includes('bounces: none'), logs.join('\n'));
+  });
+
+  it('degrades to "unavailable" instead of throwing when the comment fetch fails', () => {
+    const gh = contextGh();
+    const wrapped = (args) => {
+      if (args.join(' ') === COMMENTS_KEY) throw new Error('gh exploded');
+      return gh(args);
+    };
+    const logs = [];
+    assert.doesNotThrow(() => runSdlc(['context', '7'], { gh: wrapped, git, log: (m) => logs.push(m) }));
+    assert.ok(logs.includes('bounces: unavailable'), logs.join('\n'));
+  });
+});
+
+describe('stagesOf / priorityRank', () => {
+  it('extracts every stage suffix', () => {
+    assert.deepEqual(stagesOf(['bug', 'stage:build', 'stage:verify']), ['build', 'verify']);
+    assert.deepEqual(stagesOf(['bug']), []);
+  });
+
+  it('ranks critical < medium < future < unlabeled', () => {
+    assert.equal(priorityRank(['priority:critical']), 0);
+    assert.equal(priorityRank(['priority:medium']), 1);
+    assert.equal(priorityRank(['priority:future']), 2);
+    assert.equal(priorityRank(['bug']), 3);
+  });
+});
+
+describe('planGate', () => {
+  it('treats a fresh lock as a live worker, never an abort', () => {
+    const plan = planGate([{ number: 1, ageMs: WIP_STALE_MS + 1 }, { number: 2, ageMs: 5 }]);
+    assert.equal(plan.decision, 'reap');
+    assert.deepEqual(plan.live.map((i) => i.number), [2]);
+    assert.deepEqual(plan.reap.map((i) => i.number), [1]);
+  });
+
+  it('reports live when only fresh locks exist', () => {
+    const plan = planGate([{ number: 2, ageMs: 5 }]);
+    assert.equal(plan.decision, 'live');
+    assert.deepEqual(plan.reap, []);
+  });
+
+  it('reaps every lock at/over the threshold', () => {
+    const plan = planGate([{ number: 3, ageMs: WIP_STALE_MS }, { number: 4, ageMs: WIP_STALE_MS * 2 }]);
+    assert.equal(plan.decision, 'reap');
+    assert.deepEqual(plan.reap.map((i) => i.number), [3, 4]);
+  });
+
+  it('is clear with no locks', () => {
+    assert.equal(planGate([]).decision, 'clear');
+  });
+});
+
+describe('planMaintLock', () => {
+  it('acquires when no lock exists', () => {
+    assert.equal(planMaintLock({ exists: false }).action, 'acquire');
+    assert.equal(planMaintLock(null).action, 'acquire');
+  });
+
+  it('skips (never aborts) while a live run holds the lock', () => {
+    assert.equal(planMaintLock({ exists: true, ageMs: MAINT_STALE_MS - 1 }).action, 'skip');
+  });
+
+  it('reaps a stale lock (holder presumed dead at the threshold)', () => {
+    assert.equal(planMaintLock({ exists: true, ageMs: MAINT_STALE_MS }).action, 'reap');
+    assert.equal(planMaintLock({ exists: true, ageMs: MAINT_STALE_MS * 4 }).action, 'reap');
+  });
+});
+
 describe('runSdlc emit', () => {
   const COMMENTS_KEY = 'issue view 609 --json comments --jq [.comments[] | {body: .body, createdAt: .createdAt}]';
   const LABELS_KEY = 'issue view 609 --json labels --jq .labels[].name';
@@ -468,6 +642,21 @@ describe('planClaimVerify', () => {
   });
 });
 
+describe('lastLabeledAt', () => {
+  it('returns the most recent matching labeled event', () => {
+    const events = [
+      { event: 'labeled', label: { name: WIP_LABEL }, created_at: '2026-07-08T01:00:00Z' },
+      { event: 'labeled', label: { name: 'bug' }, created_at: '2026-07-08T05:00:00Z' },
+      { event: 'labeled', label: { name: WIP_LABEL }, created_at: '2026-07-08T03:00:00Z' },
+    ];
+    assert.equal(lastLabeledAt(events, WIP_LABEL), '2026-07-08T03:00:00Z');
+  });
+
+  it('returns null when the label was never added', () => {
+    assert.equal(lastLabeledAt([{ event: 'commented' }], WIP_LABEL), null);
+  });
+});
+
 describe('lastUnlabeledAt', () => {
   it('returns the most recent matching unlabeled event (the claim boundary)', () => {
     const events = [
@@ -630,6 +819,13 @@ describe('laneIneligibilityBreakdown', () => {
   it('returns empty string for a fully-eligible lane (all buckets zero)', () => {
     assert.equal(laneIneligibilityBreakdown({ ineligible: { hold: 0, 'needs-human': 0, wip: 0 } }), '');
     assert.equal(laneIneligibilityBreakdown({}), '');
+  });
+});
+
+describe('planHeal', () => {
+  it('reports still-locked when sdlc:wip remains', () => {
+    assert.equal(planHeal(['stage:verify', WIP_LABEL]).stillLocked, true);
+    assert.equal(planHeal(['stage:verify']).stillLocked, false);
   });
 });
 
@@ -816,6 +1012,39 @@ describe('mintRunId', () => {
 
   it('mints a 4-hex-char suffix by default', () => {
     assert.match(mintRunId(new Date(Date.UTC(2026, 6, 10, 1, 22))), /^dispatch-20260710-0122-[0-9a-f]{4}$/);
+  });
+});
+
+describe('branch-prune helpers', () => {
+  it('planBranchPrune excludes the default branch, the prod branch, and current', () => {
+    const merged = [`  ${DEFAULT_BRANCH}`, '* feat/615-x', '  feat/600-done', `  ${PROD_BRANCH}`, '  chore/1'];
+    assert.deepEqual(planBranchPrune(merged, 'feat/615-x'), ['feat/600-done', 'chore/1']);
+  });
+
+  it('planBranchPrune excludes `+ ` worktree-held branches, never captures the marker', () => {
+    // `git branch` prefixes a linked-worktree branch with `+ ` — off-limits to
+    // `git branch -D`, and the marker must not leak into the branch name.
+    const merged = [`  ${DEFAULT_BRANCH}`, '* feat/615-x', '+ docs/held-elsewhere', '  feat/600-done'];
+    assert.deepEqual(planBranchPrune(merged, 'feat/615-x'), ['feat/600-done']);
+  });
+
+  it('parseGoneBranches finds [gone] upstreams, skipping current/default/prod', () => {
+    const out = [
+      '* feat/615-x   abc1234 [origin/feat/615-x] wip',
+      '  feat/600-done def5678 [origin/feat/600-done: gone] done',
+      `  ${DEFAULT_BRANCH}          aaa1111 [origin/${DEFAULT_BRANCH}] base`,
+      `  ${PROD_BRANCH}       bbb2222 [origin/${PROD_BRANCH}: gone] x`,
+    ].join('\n');
+    assert.deepEqual(parseGoneBranches(out, 'feat/615-x'), ['feat/600-done']);
+  });
+
+  it('parseGoneBranches skips `+ ` worktree-held branches even when upstream is gone', () => {
+    const out = [
+      '* feat/615-x            abc1234 [origin/feat/615-x] wip',
+      '+ docs/held-elsewhere   ccc3333 [origin/docs/held-elsewhere: gone] wt',
+      '  feat/600-done         def5678 [origin/feat/600-done: gone] done',
+    ].join('\n');
+    assert.deepEqual(parseGoneBranches(out, 'feat/615-x'), ['feat/600-done']);
   });
 });
 
@@ -1749,6 +1978,81 @@ describe('sdlc dup-check command', () => {
   it('errors on a missing query or an all-stopword query', () => {
     throwsSdlc(() => runSdlc(['dup-check'], { gh: fakeExec(), log: () => {} }), /requires a query/);
     throwsSdlc(() => runSdlc(['dup-check', 'the a of'], { gh: fakeExec(), log: () => {} }), /no usable search terms/);
+  });
+});
+
+describe('maint-lock / maint-release (filesystem machine lock)', () => {
+  /** A throwaway repo root with a .git dir for the lock to live in. */
+  const makeRoot = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-maint-test-'));
+    fs.mkdirSync(path.join(root, '.git'));
+    return root;
+  };
+  const lockDir = (root) => path.join(root, '.git', 'sdlc-maint.lock');
+
+  it('acquires when free, then a second contender is HELD (exit 1)', () => {
+    const root = makeRoot();
+    try {
+      const logs = [];
+      runSdlc(['maint-lock', 'run-a'], { gh: fakeExec(), log: (m) => logs.push(m), root });
+      assert.ok(logs.join('\n').includes('maint-lock: ACQUIRED run-a'));
+      assert.equal(fs.existsSync(lockDir(root)), true);
+
+      const prevExit = process.exitCode;
+      const logs2 = [];
+      runSdlc(['maint-lock', 'run-b'], { gh: fakeExec(), log: (m) => logs2.push(m), root });
+      assert.ok(logs2.join('\n').includes('HELD by run-a'));
+      assert.equal(process.exitCode, 1);
+      process.exitCode = prevExit; // don't fail the test run itself
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reaps a stale lock (owner stamp past the threshold) and acquires', () => {
+    const root = makeRoot();
+    try {
+      fs.mkdirSync(lockDir(root));
+      const old = new Date(Date.now() - MAINT_STALE_MS - 60_000).toISOString();
+      fs.writeFileSync(path.join(lockDir(root), 'owner.txt'), `run-dead ${old}\n`);
+
+      const logs = [];
+      runSdlc(['maint-lock', 'run-b'], { gh: fakeExec(), log: (m) => logs.push(m), root });
+      const out = logs.join('\n');
+      assert.ok(out.includes('REAPED stale lock from run-dead'), out);
+      assert.ok(out.includes('ACQUIRED run-b'), out);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('release is idempotent and owner-checked', () => {
+    const root = makeRoot();
+    try {
+      // Releasing a never-taken lock is a successful no-op.
+      const logs0 = [];
+      runSdlc(['maint-release', 'run-a'], { gh: fakeExec(), log: (m) => logs0.push(m), root });
+      assert.ok(logs0.join('\n').includes('already clear'));
+
+      runSdlc(['maint-lock', 'run-a'], { gh: fakeExec(), log: () => {}, root });
+
+      // A different run-id must not release it.
+      const prevExit = process.exitCode;
+      const logs1 = [];
+      runSdlc(['maint-release', 'run-b'], { gh: fakeExec(), log: (m) => logs1.push(m), root });
+      assert.ok(logs1.join('\n').includes('NOT OWNER'));
+      assert.equal(fs.existsSync(lockDir(root)), true);
+      assert.equal(process.exitCode, 1);
+      process.exitCode = prevExit;
+
+      // The owner releases cleanly.
+      const logs2 = [];
+      runSdlc(['maint-release', 'run-a'], { gh: fakeExec(), log: (m) => logs2.push(m), root });
+      assert.ok(logs2.join('\n').includes('RELEASED run-a'));
+      assert.equal(fs.existsSync(lockDir(root)), false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

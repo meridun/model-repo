@@ -71,8 +71,9 @@ Apply the `security-executor` role's checklist **inline**, adversarially (see
 - **BOUNCE → `stage:build`** — a blocking, fixable defect: a missing authz check, unvalidated input, an
   injection surface, a single-actor assumption, an invariant violation. Swap `stage:audit` →
   `stage:build`, remove `sdlc:wip`, comment the specific finding (**file:line** + fix direction).
-  Apply the README **bounce cap**: two prior audit→build bounces on this issue for the same failure
-  class → PARK with the loop history instead of a third bounce. The
+  Apply the README **bounce cap**: two prior audit→build bounces on this issue for the same finding
+  class (the `bounces:` line of `sdlc context <issue>` gives the pair counts; the class is your call)
+  → PARK with the loop history instead of a third bounce. The
   fix re-flows build → verify → audit — that re-validation is intended, not waste. **Audit finds; build
   fixes** — don't patch it here (patching would skip re-verification).
 - **PARK** — needs a human **risk** call: a known tradeoff to accept, an ambiguous threat model, or a
@@ -81,7 +82,9 @@ Apply the `security-executor` role's checklist **inline**, adversarially (see
   remove `sdlc:wip`, comment specifics. Lane stays `stage:audit`.
 
 ### 4. STOP
-One-line result: `AUDIT: <#issue> → ADVANCE(ship)|BOUNCE(build)|PARK — <reason>`.
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
+`AUDIT: <#issue> → ADVANCE(ship)|BOUNCE(build)|PARK — <reason>`.
 
 ---
 

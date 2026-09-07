@@ -322,6 +322,41 @@ export function planEmit(labelNames, outcome, toStage) {
 }
 
 /**
+ * Count an issue's prior BOUNCE emits per lane pair — the deterministic half of
+ * the core's bounce cap (`sdlc/README.md` EMIT step). The *class* of a failure
+ * is not machine-decidable, so this only supplies the counts; the worker decides
+ * whether two priors were the same class and PARKs instead.
+ *
+ * Input is the shape `fetchLockComments()` returns (`[{body, createdAt}]`).
+ * Only a comment's **first line** is matched: emit bodies quote prior outcomes
+ * in prose, and a loose match would double-count. `from` is the run-id's
+ * trailing `-<lane>` segment (that is how the dispatcher mints them), `'?'`
+ * when it names no stage; `to` is the marker's target stage, `'?'` when absent.
+ * Returns `[{from, to, count}]` sorted count-desc then from/to. Pure.
+ */
+export function summarizeBounces(comments) {
+  const MARKER = /^sdlc:emit\s+(\S+)\s+BOUNCE(?:\s+(?:→|->)\s*stage:(\S+))?/;
+  const pairs = new Map();
+  for (const c of comments ?? []) {
+    const firstLine = String(c?.body ?? '').split('\n')[0];
+    const m = firstLine.match(MARKER);
+    if (!m) continue;
+    const lane = m[1].split('-').pop();
+    const from = STAGES.includes(lane) ? lane : '?';
+    const to = m[2] ?? '?';
+    const key = `${from} -> ${to}`;
+    const seen = pairs.get(key);
+    if (seen) seen.count += 1;
+    else pairs.set(key, { from, to, count: 1 });
+  }
+  return [...pairs.values()].sort((a, b) => (
+    b.count - a.count
+    || (a.from < b.from ? -1 : a.from > b.from ? 1 : 0)
+    || (a.to < b.to ? -1 : a.to > b.to ? 1 : 0)
+  ));
+}
+
+/**
  * The most recent time `label` was added, from GitHub issue timeline events.
  * Returns an ISO string or null. Pure over the parsed `/timeline` payload.
  */
@@ -1590,6 +1625,15 @@ function cmdContext(args, { gh, git, log }) {
     log(`prs (head ${branch}): ${prs.map((p) => `#${p.number} [${p.state}]`).join(', ')}`);
   } else {
     log(`prs (head ${branch}): none`);
+  }
+  // Advisory only (core bounce cap): never fail a worker's context step over it.
+  try {
+    const bounces = summarizeBounces(fetchLockComments(gh, issue));
+    log(bounces.length
+      ? `bounces: ${bounces.map((b) => `${b.from}→${b.to} ×${b.count}`).join(', ')}`
+      : 'bounces: none');
+  } catch {
+    log('bounces: unavailable');
   }
 }
 

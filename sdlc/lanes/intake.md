@@ -29,7 +29,8 @@ human-facing residue:
   close, dup close), and the open issues each was *blocking* (the binding's core computes the
   work-list in one read-only shot from the edges: closed issues minus already-acked → their open
   dependents → per dependent, `[unblocked]` when every remaining blocker is closed, else
-  `[still blocked by #…]`). `sweep: clear` means nothing to do — skip to CLAIM.
+  `[still blocked by #…]`). `sweep: clear` means nothing to do — skip to CLAIM. The work-list read
+  is genuinely read-only — it writes nothing; the edits below are yours to perform.
 - For each `[unblocked]` dependent: `comment` that its last blocker has closed, and bring the
   human mirrors up to date — strike the `Depends on #n` line in its record if one exists, and any
   roadmap readiness line the project keeps. Any derived `blocked` → `ready` marker flip is
@@ -198,7 +199,9 @@ the design worker — never write or edit those here.
   nothing — its dependents are genuinely unblocked, and the close sweep will tell their humans.
 
 ### 4. STOP
-One-line result: `INTAKE: <#issue> → ADVANCE(design|verify)|PARK|CLOSE — <reason>`
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
+`INTAKE: <#issue> → ADVANCE(design|verify)|PARK|CLOSE — <reason>`
 (append `· SWEEP: <n> closes processed` when the close sweep found any,
 `· DEP-AUDIT: filed #n|commented #n|clear` when the dependency sweep ran, and
 `· EDGES: blocked by #n[, #m]|re-pointed #a→#c|none` whenever the triage created or re-pointed a
@@ -225,7 +228,11 @@ dependency edge).
   rewound to intake, cloned from a completed one, or enrolling in-flight developer work — is
   reconciled, not re-triaged from scratch: if the evidence (merged PR, code on `<DEFAULT_BRANCH>`)
   shows it already shipped, PARK with that evidence for a human to close rather than advancing it
-  back into the pipeline.
+  back into the pipeline. Two of those cases have a specific stance: a **clone** copies the body,
+  not the thread, so its links point at the *predecessor's* artifacts — read them before deciding
+  anything is missing; and an issue filed to **enroll in-flight developer work** starts from a
+  branch that already exists — intake's job there is to describe the *gap*, not to pretend the work
+  is greenfield.
 - **No code changes, no branches.** Intake reads, re-stages, and edits only the
   `## Requirements` / `## Acceptance criteria` sections; its sole repo edit is the
   `<DECISION_RECORD>` graduation via the throwaway docs-only worktree.

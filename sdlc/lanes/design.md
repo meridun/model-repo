@@ -5,8 +5,8 @@ Stage: `stage:design` → `stage:queued`
 **Design is a standard phase: every triaged item passes through it** (intake's only bypass is the
 already-built → `stage:verify` floor). The lane runs two tracks with different human seams:
 
-- **Spec track** — every item. Write the **implementation plan** into the issue body, then
-  **ADVANCE**. The spec is a *completed output* with a reasonable default (your judgment); the
+- **Spec track** — every item, and strictly *after* the UX pick when both apply. Write the
+  **implementation plan** into the issue body, then **ADVANCE**. The spec is a *completed output* with a reasonable default (your judgment); the
   human's role is veto, not selection, so its review happens at the `stage:queued` gate, not via
   PARK.
 - **UX track** *(optional adopter module)* — runs only when the project binds design artifacts in
@@ -63,7 +63,8 @@ implementation notes — in the thread and body, on a predecessor issue linked i
 any prior-work branch intake's summary named (read its log/diff, not just its name). Incorporate
 what still holds; reject the rest explicitly, one line each on why, so the queued reviewer sees
 the call. When a partial implementation exists, the plan covers the **gap**: record the branch and
-its HEAD alongside the Baseline, and mark in Touched what's already done vs remaining.
+its HEAD alongside the Baseline, and mark in Touched what's already done vs remaining. Nothing
+found → say so in one line and move on; this is a sweep, not an excavation.
 
 **The implementation plan** is a section you append to the issue's evidence record
 (`write-section`, *preserving every existing section* — you own only your sections; see the
@@ -134,7 +135,9 @@ whole cost of the standard phase for a bug fix; don't inflate it.
   items get their spec-lite here; the spec track is why every item visits this lane.
 
 ### 4. STOP
-One-line result: `DESIGN: <#issue> → ADVANCE(queued)|PARK|BOUNCE(intake) — <reason>`.
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
+`DESIGN: <#issue> → ADVANCE(queued)|PARK|BOUNCE(intake) — <reason>`.
 
 ---
 

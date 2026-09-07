@@ -67,7 +67,9 @@ Otherwise, in the issue's worktree (`<WORKTREE_ROOT>/<issue#>`) on build's branc
   Lane stays `stage:ship`. (Code merge conflicts BOUNCE to build, not PARK.)
 
 ### 4. STOP
-One-line result: `SHIP: <#issue> → ADVANCE(PR open)|BOUNCE(build)|PARK — <reason>`.
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
+`SHIP: <#issue> → ADVANCE(PR open)|BOUNCE(build)|PARK — <reason>`.
 
 ---
 
