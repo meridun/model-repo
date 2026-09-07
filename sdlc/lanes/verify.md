@@ -72,7 +72,11 @@ spawn it.
   - **Schema drift:** `<SCHEMA_DUMP>` must be regenerated and committed in the same diff — after
     applying, confirm `git status` shows no uncommitted change to it. A committed dump that
     doesn't match the migration chain is a BOUNCE (the branch must carry the regenerated file,
-    not a hand-edit).
+    not a hand-edit). **Known hazard:** running the migration tool's regeneration against a
+    disposable or differently-seeded DB can *clobber* the committed `<SCHEMA_DUMP>` with an
+    unrelated dump. Back the file up before any `<MIGRATE_DOWN_CMD>`/`<MIGRATE_UP_CMD>` cycle,
+    restore it afterwards, and confirm the resulting diff contains **only** this issue's intended
+    schema change before you judge drift either way.
 - **Check the diff against the issue body's `## Implementation plan`** — the reviewed plan is the
   spec; an unexplained deviation (files touched outside the plan with no ADVANCE-comment
   rationale) is a BOUNCE.
@@ -86,7 +90,8 @@ spawn it.
   Swap `stage:verify` → `stage:build`, remove `sdlc:wip`, comment the **specific** failure (test name
   + output, or the AC with observed-vs-expected). Build fixes on the same branch (idempotent continue).
   Apply the README **bounce cap**: two prior verify→build bounces on this issue for the same failure
-  class → PARK with the loop history instead of a third bounce.
+  class (the `bounces:` line of `sdlc context <issue>` gives the pair counts; the class is your call)
+  → PARK with the loop history instead of a third bounce.
   **Verify validates; it does not fix** — don't patch the code yourself.
 - **PARK** — needs a human call: the environment won't stand up, a nondeterministic/flaky failure
   needs judgment, the AC's expected behavior is genuinely ambiguous, or the change **meets the AC but
@@ -95,7 +100,9 @@ spawn it.
   specifics.
 
 ### 4. STOP
-One-line result: `VERIFY: <#issue> → ADVANCE(audit)|BOUNCE(build)|PARK — <reason>`.
+One-line result (a return value to the dispatcher, **not** a shell command — no redirects,
+no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
+`VERIFY: <#issue> → ADVANCE(audit)|BOUNCE(build)|PARK — <reason>`.
 
 ---
 

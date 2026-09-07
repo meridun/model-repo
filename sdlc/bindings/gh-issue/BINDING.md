@@ -102,7 +102,7 @@ fallback, normative for what the op must do.
 |---|---|---|
 | `snapshot` | `sdlc lanes` (per-lane depth, CLAIM-ordered eligibility with an ineligibility breakdown, blocked list, ≠1-stage list) — or the `=== lanes ===` section of `sdlc cycle-prep` | `gh issue list --state open --json number,labels,createdAt --limit 200` + the GraphQL edge pass (§6) |
 | `read <issue>` | `sdlc context <issue>` (branch, status, labels, PRs) + `gh issue view <n> --json body,comments` | same |
-| `history <issue>` | — | `gh issue view <n> --json comments`; filter first lines `sdlc:claim …` / `sdlc:emit …`; timeline for the boundary (§4) |
+| `history <issue>` | `sdlc context <issue>` — its `bounces:` line is the per-pair BOUNCE tally for the core's bounce cap (advisory; the failure *class* stays the worker's judgment) | `gh issue view <n> --json comments`; filter first lines `sdlc:claim …` / `sdlc:emit …`; timeline for the boundary (§4) |
 | `dep-read` | inside `sdlc lanes` / `cycle-prep` | GraphQL pass (§6) |
 | `dup-search <kw>` | `sdlc dup-check "<kw>" [--exclude <n>]` — ranks open issues by keyword overlap; exit 2 = candidates, 0 = clean | `gh issue list --search "<kw>" --state all --limit 30 --json number,title,state` (also the wider net across closed issues) |
 | `in-flight <stage>` | from `sdlc lanes` | `gh issue list --label stage:<stage> --json number,title` |

@@ -14,6 +14,9 @@ This is the *why* behind the prompts. Read it once; the prompts are self-contain
 > `ado-feature` / `ado-pbi` bindings and their profile examples **declined** (no Azure DevOps
 > downstream yet — revisit when one appears); CI in `.github/workflows/ci.yml` targets `dev`/`main`.
 
+> **Port record:** prompt refinements, bounce summary, and helper tests ported from
+> [meridun/IsekaiOnline](https://github.com/meridun/IsekaiOnline) **78492873f** (2026-09-07).
+
 ## The idea
 
 A backlog of GitHub issues, each carrying a `stage:` label, is a state machine. A **coding agent**

@@ -262,7 +262,9 @@ the human throttle):
    | ship | mid (sonnet-class) | docs fan-out + PR ritual; template-shaped work |
 
    Two routing cautions: **set concrete tiers, not provider aliases** — a family alias like `opus`
-   resolves provider/account/settings-dependently, so what it names can shift under you; and
+   resolves provider/account/settings-dependently, so what it names can shift under you, so **re-check
+   this table when a new model family ships** rather than assuming a binding still points at the tier
+   it did when the row was written; and
    **avoid Fable-class models for the audit lane** — their safety classifiers can refuse benign
    defensive-security review work, which is exactly audit's job (same reason session-orchestration
    layers keep security roles off Fable).
@@ -339,5 +341,6 @@ Finish with:
 - Queue depths after the cycle, parked items and holds by issue id — with the binding's core
   (gh-issue: `sdlc digest`), depths, parked/hold lists, and the **arrivals/departures delta vs
   the last cycle** come from one fresh snapshot.
-- Token cost per lane plus cycle total — the trend line for spotting cost regressions across
-  cycles.
+- Token cost per lane plus cycle total, from each worker's completion notification (its
+  `subagent_tokens` figure, including any resumes) — one line, `tokens: <lane> <n>k / … / total
+  <n>k`. This is the trend line for spotting cost regressions across cycles.
