@@ -178,6 +178,11 @@ itself has no dependencies) and runs through the ESLint Node API with `cache: fa
 Non-ESLint stacks: the pure helpers (`aggregateCounts` / `compareToBaseline` / `reportCheck`)
 are generic — swap `lintRepo` for your linter's JSON output and keep the same baseline shape.
 
+The **shape** generalises past lint: any counter you want to stop getting worse — stray console
+output, TODO markers, bundle size, skipped tests — can ride the same committed-baseline /
+fail-on-growth / new-key-fails contract as a sibling check (e.g. a `check:console-baseline` script
+wired into CI next to the lint ratchet).
+
 ## 6. Choose your concurrency variant
 
 - Small backlog / single tree → **serial** (see [Development_AgenticSDLC.md](Development_AgenticSDLC.md#concurrency-variants);
