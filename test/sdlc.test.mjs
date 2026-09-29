@@ -36,6 +36,8 @@ import {
   lastLabeledAt,
   lastUnlabeledAt,
   computeLanes,
+  focusLanes,
+  formatFocusLine,
   laneIneligibilityBreakdown,
   planHeal,
   planHealLane,
@@ -64,6 +66,9 @@ import {
   dupTokens,
   dupQueryTerms,
   scoreDupCandidates,
+  planNodeModulesRefresh,
+  mainCheckoutRoot,
+  INSTALL_STAMP_PATH,
 } from '../sdlc/bindings/gh-issue/sdlc.mjs';
 
 /**
@@ -819,6 +824,149 @@ describe('laneIneligibilityBreakdown', () => {
   it('returns empty string for a fully-eligible lane (all buckets zero)', () => {
     assert.equal(laneIneligibilityBreakdown({ ineligible: { hold: 0, 'needs-human': 0, wip: 0 } }), '');
     assert.equal(laneIneligibilityBreakdown({}), '');
+  });
+});
+
+describe('focusLanes / formatFocusLine (focused cycle --issue)', () => {
+  const at = (d) => `2026-07-0${d}T00:00:00Z`;
+  const snapshot = [
+    { number: 1, createdAt: at(1), labels: ['stage:build', 'priority:critical'] },
+    { number: 2, createdAt: at(2), labels: ['stage:build'] },
+    { number: 3, createdAt: at(3), labels: ['stage:verify', 'sdlc:needs-human'] },
+    { number: 4, createdAt: at(4), labels: ['stage:build', WIP_LABEL], blockedBy: [{ number: 9, state: 'OPEN' }] },
+    { number: 5, createdAt: at(5), labels: ['stage:audit'], blockedBy: [{ number: 8, state: 'OPEN' }, { number: 7, state: 'OPEN' }] },
+    { number: 6, createdAt: at(6), labels: ['stage:queued'] },
+    { number: 7, createdAt: at(7), labels: ['bug'] },
+    { number: 8, createdAt: at(8), labels: ['stage:build', 'stage:verify'] },
+    { number: 10, createdAt: at(9), labels: ['stage:build', 'sdlc:hold', 'sdlc:needs-human'] },
+    { number: 11, createdAt: at(9), labels: ['stage:shipping'] },
+  ];
+  const line = (n) => formatFocusLine(focusLanes(snapshot, n).focus);
+
+  it('filters eligible/blocked to the focus issue while depths, breakdowns and integrity stay global', () => {
+    const full = computeLanes(snapshot);
+    const { lanes, integrity, focus } = focusLanes(snapshot, 2);
+    assert.deepEqual(full.lanes.build.eligible, [1, 2, 8]);
+    assert.deepEqual(lanes.build.eligible, [2]);
+    assert.deepEqual(lanes.verify.eligible, []);
+    assert.deepEqual(lanes.audit.blocked, []);
+    for (const lane of Object.keys(full.lanes)) {
+      assert.equal(lanes[lane].depth, full.lanes[lane].depth);
+      assert.deepEqual(lanes[lane].ineligible, full.lanes[lane].ineligible);
+    }
+    assert.deepEqual(integrity, full.integrity);
+    assert.deepEqual(focus, { number: 2, verdict: 'eligible', lane: 'build' });
+  });
+
+  it('keeps the focus issue in its lane blocked list', () => {
+    assert.deepEqual(focusLanes(snapshot, 5).lanes.audit.blocked, [{ number: 5, blockers: [7, 8] }]);
+  });
+
+  it('accepts a string issue number (as requireIssue returns)', () => {
+    assert.deepEqual(focusLanes(snapshot, '2').lanes.build.eligible, [2]);
+  });
+
+  it('verdict: eligible', () => {
+    assert.equal(line(1), 'focus #1: eligible in build');
+  });
+
+  it('verdict: ineligible (needs-human)', () => {
+    assert.equal(line(3), 'focus #3: ineligible in verify (needs-human)');
+  });
+
+  it('verdict: ineligible lists every reason in hold › needs-human › wip › blocked order', () => {
+    assert.equal(line(4), 'focus #4: ineligible in build (wip, blocked by #9)');
+    assert.equal(line(10), 'focus #10: ineligible in build (hold, needs-human)');
+    assert.deepEqual(focusLanes(snapshot, 4).focus, {
+      number: 4, verdict: 'ineligible', lane: 'build', reasons: ['wip', 'blocked'], blockers: [9],
+    });
+  });
+
+  it('verdict: ineligible (blocked by several open blockers, ascending)', () => {
+    assert.equal(line(5), 'focus #5: ineligible in audit (blocked by #7, #8)');
+  });
+
+  it('verdict: queued is a human gate even when unflagged', () => {
+    assert.equal(line(6), 'focus #6: queued (human gate)');
+  });
+
+  it('verdict: no stage label', () => {
+    assert.equal(line(7), 'focus #7: no stage label');
+  });
+
+  it('verdict: multiple stage labels', () => {
+    assert.equal(line(8), 'focus #8: multiple stage labels (build, verify)');
+  });
+
+  it('verdict: unknown stage label', () => {
+    assert.equal(line(11), 'focus #11: unknown stage label (shipping)');
+  });
+
+  it('verdict: not open (absent from the open snapshot)', () => {
+    const { lanes, focus } = focusLanes(snapshot, 999);
+    assert.equal(formatFocusLine(focus), 'focus #999: not open (closed or nonexistent)');
+    assert.equal(Object.values(lanes).every((l) => l.eligible.length === 0), true);
+  });
+});
+
+describe('runSdlc lanes --issue (focused cycle)', () => {
+  const snapshotKey = 'issue list --state open --json number,labels,createdAt,title --limit 200';
+  const makeGh = () => fakeExec({
+    [snapshotKey]: JSON.stringify([
+      { number: 1, createdAt: '2026-07-01T00:00:00Z', labels: [{ name: 'stage:build' }] },
+      { number: 2, createdAt: '2026-07-02T00:00:00Z', labels: [{ name: 'stage:build' }] },
+      { number: 3, createdAt: '2026-07-03T00:00:00Z', labels: [{ name: 'bug' }, { name: WIP_LABEL }] },
+    ]),
+    [graphqlKey('OPEN')]: graphqlPage([
+      { number: 1 }, { number: 2, blockedBy: [{ number: 3, state: 'OPEN' }] }, { number: 3 },
+    ]),
+  });
+  const run = (argv) => {
+    const logs = [];
+    runSdlc(argv, { gh: makeGh(), log: (m) => logs.push(m) });
+    return logs;
+  };
+
+  it('without --issue the output is unchanged (no focus line, global eligibility)', () => {
+    assert.deepEqual(run(['lanes']), [
+      'intake: depth 0, eligible —',
+      'design: depth 0, eligible —',
+      'build: depth 2, eligible #1 (blocked 1)',
+      'verify: depth 0, eligible —',
+      'audit: depth 0, eligible —',
+      'ship: depth 0, eligible —',
+      'queued: depth 0, eligible —',
+      'blocked (open native blockers): #2 ← #3',
+      'integrity (corrupt stage-label state — needs human):',
+      '  #3: no stage label (but wip/needs-human)',
+    ]);
+  });
+
+  it('filters eligible/blocked to the focus issue, keeps depth + integrity global, prints the verdict', () => {
+    assert.deepEqual(run(['lanes', '--issue', '2']), [
+      'intake: depth 0, eligible —',
+      'design: depth 0, eligible —',
+      'build: depth 2, eligible — (blocked 1)',
+      'verify: depth 0, eligible —',
+      'audit: depth 0, eligible —',
+      'ship: depth 0, eligible —',
+      'queued: depth 0, eligible —',
+      'blocked (open native blockers): #2 ← #3',
+      'focus #2: ineligible in build (blocked by #3)',
+      'integrity (corrupt stage-label state — needs human):',
+      '  #3: no stage label (but wip/needs-human)',
+    ]);
+    const other = run(['lanes', '--issue', '#1']);
+    assert.ok(other.includes('build: depth 2, eligible #1 (blocked 1)'));
+    assert.equal(other.some((l) => l.startsWith('blocked (open native blockers)')), false);
+    assert.ok(other.includes('focus #1: eligible in build'));
+  });
+
+  it('rejects an invalid or missing --issue value before fetching anything', () => {
+    const gh = makeGh();
+    throwsSdlc(() => runSdlc(['lanes', '--issue', 'abc'], { gh, log: () => {} }), /expected an issue number/);
+    throwsSdlc(() => runSdlc(['lanes', '--issue'], { gh, log: () => {} }), /expected an issue number/);
+    assert.deepEqual(gh.calls, []);
   });
 });
 
@@ -2097,9 +2245,11 @@ describe('cycle-prep (one-shot pre-dispatch sequence)', () => {
       const sections = logs.filter((l) => l.startsWith('\n=== ')).map((l) => l.replace(/[\n= ]/g, ''));
       assert.deepEqual(sections, [
         'maint-lock', 'lanes', 'gate', 'deps-migrate', 'deps', 'sweep',
-        'git-maint', 'worktree-sweep', 'conflict-scan', 'maint-release', 'summary',
+        'git-maint', 'node-modules', 'worktree-sweep', 'conflict-scan', 'maint-release', 'summary',
       ]);
       assert.ok(out.includes('deps --migrate: no prose dependency declarations to migrate.'));
+      // No lockfile in the throwaway root → a skip line, never an install.
+      assert.ok(out.includes('node-modules: skipped (no readable package-lock.json in main checkout)'));
       // Identical semantics to the individual commands.
       assert.ok(out.includes('maint-lock: ACQUIRED'));
       assert.ok(out.includes('intake: depth 0'));
@@ -2162,6 +2312,7 @@ describe('cycle-prep (one-shot pre-dispatch sequence)', () => {
       // ...but the maintenance trio does not.
       assert.ok(out.includes('maintenance: skipped (lock held by run-live'));
       assert.ok(!out.includes('=== git-maint ==='));
+      assert.ok(!out.includes('=== node-modules ==='));
       assert.equal(git.calls.some((c) => c[0] === 'fetch'), false);
       // A held lock is a normal outcome, never a cycle-prep failure...
       assert.equal(process.exitCode ?? undefined, prevExit ?? undefined);
@@ -2170,6 +2321,67 @@ describe('cycle-prep (one-shot pre-dispatch sequence)', () => {
       assert.ok(!out.includes('maint-release'));
     } finally {
       process.exitCode = undefined;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('--issue focuses only the lanes section: header + summary name the focus, every global section still runs', () => {
+    const root = makeRoot();
+    try {
+      const gh = idleGh({
+        'issue list --state open --json number,labels,createdAt,title --limit 200': JSON.stringify([
+          { number: 41, createdAt: '2026-07-01T00:00:00Z', labels: [{ name: 'stage:build' }] },
+          { number: 42, createdAt: '2026-07-02T00:00:00Z', labels: [{ name: 'stage:build' }] },
+        ]),
+      });
+      const logs = [];
+      runSdlc(['cycle-prep', '--issue', '42'], { gh, git: idleGit(), log: (m) => logs.push(m), root });
+      const out = logs.join('\n');
+      assert.match(logs[0], /^run-id: dispatch-\d{8}-\d{4}-[0-9a-f]{4}$/);
+      assert.match(logs[1], /^started: \d{4}-\d{2}-\d{2}T/);
+      assert.equal(logs[2], 'focus: #42');
+      const sections = logs.filter((l) => l.startsWith('\n=== ')).map((l) => l.replace(/[\n= ]/g, ''));
+      assert.deepEqual(sections, [
+        'maint-lock', 'lanes', 'gate', 'deps-migrate', 'deps', 'sweep',
+        'git-maint', 'node-modules', 'worktree-sweep', 'conflict-scan', 'maint-release', 'summary',
+      ]);
+      assert.ok(logs.includes('build: depth 2, eligible #42'));
+      assert.ok(out.includes('focus #42: eligible in build'));
+      assert.ok(out.includes('gate: CLEAR'));
+      assert.ok(out.includes('sweep: clear'));
+      assert.ok(out.includes(`conflict-scan: no conflicting PRs into ${DEFAULT_BRANCH}.`));
+      assert.ok(out.includes('maint-release: RELEASED'));
+      assert.match(logs[logs.length - 1], /^cycle-prep: run-id \S+, started \S+, maintenance previewed, focus #42\.$/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('without --issue the header and summary carry no focus', () => {
+    const root = makeRoot();
+    try {
+      const logs = [];
+      runSdlc(['cycle-prep'], { gh: idleGh(), git: idleGit(), log: (m) => logs.push(m), root });
+      assert.equal(logs.some((l) => /focus/.test(l)), false);
+      assert.match(logs[logs.length - 1], /maintenance previewed\.$/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an invalid --issue before minting, locking or fetching', () => {
+    const root = makeRoot();
+    try {
+      const gh = idleGh();
+      const logs = [];
+      throwsSdlc(
+        () => runSdlc(['cycle-prep', '--issue', 'x1'], { gh, git: idleGit(), log: (m) => logs.push(m), root }),
+        /expected an issue number/,
+      );
+      assert.deepEqual(logs, []);
+      assert.deepEqual(gh.calls, []);
+      assert.equal(fs.existsSync(lockDir(root)), false);
+    } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -2221,6 +2433,172 @@ describe('runSdlc gate --reap verify-before-write', () => {
     runSdlc(['gate', '--reap'], { gh, log: (m) => logs.push(m) });
     assert.ok(logs.join('\n').includes('reap skipped — fresh claim'));
     assert.equal(gh.calls.some((c) => c[0] === 'issue' && c[1] === 'edit'), false);
+  });
+});
+
+describe('planNodeModulesRefresh / node-modules (shared install drift)', () => {
+  it('no drift: the lockfile hash matches the stamp, so no install churn', () => {
+    const plan = planNodeModulesRefresh({ lockHash: 'a'.repeat(64), stampHash: 'a'.repeat(64), apply: true });
+    assert.equal(plan.action, 'none');
+    assert.equal(plan.reason, 'current');
+    assert.ok(plan.message.includes('node-modules: current (lock aaaaaaaa)'));
+  });
+
+  it('drift with --apply: installs', () => {
+    const plan = planNodeModulesRefresh({ lockHash: 'b'.repeat(64), stampHash: 'a'.repeat(64), apply: true });
+    assert.equal(plan.action, 'install');
+    assert.equal(plan.reason, 'drift');
+    assert.ok(plan.drift.includes('aaaaaaaa'));
+    assert.ok(plan.drift.includes('bbbbbbbb'));
+  });
+
+  it('a missing stamp counts as drift — the one-time self-heal on a fresh or wiped node_modules', () => {
+    const plan = planNodeModulesRefresh({ lockHash: 'b'.repeat(64), stampHash: null, apply: true });
+    assert.equal(plan.action, 'install');
+    assert.ok(plan.drift.includes('none'));
+  });
+
+  it('never installs over human dependency WIP in the main checkout', () => {
+    const plan = planNodeModulesRefresh({
+      lockHash: 'b'.repeat(64),
+      stampHash: 'a'.repeat(64),
+      dirtyDepFiles: ['package-lock.json'],
+      apply: true,
+    });
+    assert.equal(plan.action, 'skip');
+    assert.equal(plan.reason, 'dirty');
+    assert.ok(plan.message.includes('package-lock.json dirty in main checkout'));
+  });
+
+  it('drift without --apply previews, like every other mutator', () => {
+    const plan = planNodeModulesRefresh({ lockHash: 'b'.repeat(64), stampHash: 'a'.repeat(64) });
+    assert.equal(plan.action, 'plan');
+    assert.ok(plan.message.includes('would install'));
+    assert.ok(plan.message.includes('dry run'));
+  });
+
+  it('an unreadable lockfile is a skip, not a guessed install', () => {
+    const plan = planNodeModulesRefresh({ lockHash: null, apply: true });
+    assert.equal(plan.action, 'skip');
+    assert.equal(plan.reason, 'no-lockfile');
+  });
+
+  describe('runSdlc node-modules', () => {
+    /** A throwaway main checkout: .git dir, a lockfile, and an empty node_modules. */
+    const makeMain = (lockBody = '{"lockfileVersion":3}') => {
+      const main = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-node-modules-test-'));
+      fs.mkdirSync(path.join(main, '.git'));
+      fs.mkdirSync(path.join(main, 'node_modules'));
+      fs.writeFileSync(path.join(main, 'package-lock.json'), lockBody);
+      return main;
+    };
+    /** git fake answering the common-dir probe for `main`, from a worktree `root`. */
+    const gitFor = (main, extra = {}) => fakeExec({
+      'rev-parse --path-format=absolute --git-common-dir': `${path.join(main, '.git')}\n`,
+      [`-C ${main} status --porcelain -- package.json package-lock.json`]: '',
+      [`-C ${main} status --porcelain -- package-lock.json`]: '',
+      ...extra,
+    });
+    /** npm fake recording argv AND the cwd it was told to install in. */
+    const fakeNpm = () => {
+      const calls = [];
+      const fn = (args, opts) => {
+        calls.push({ args, opts });
+        return '';
+      };
+      fn.calls = calls;
+      return fn;
+    };
+    const worktreeRoot = path.join(os.tmpdir(), 'acme-wt-12');
+
+    it('installs in the MAIN checkout (not the worktree it was run from), then stamps the lock hash', () => {
+      const main = makeMain();
+      try {
+        const npm = fakeNpm();
+        const logs = [];
+        // `root` is an issue worktree whose node_modules is a junction into `main`.
+        runSdlc(['node-modules', '--apply'], { git: gitFor(main), npm, log: (m) => logs.push(m), root: worktreeRoot });
+
+        assert.equal(npm.calls.length, 1);
+        assert.deepEqual(npm.calls[0].args, ['install', '--no-audit', '--no-fund']);
+        assert.equal(npm.calls[0].opts.cwd, main);
+        assert.ok(logs.join('\n').includes('installed'));
+        // Stamp written next to the install it describes.
+        const stamp = JSON.parse(fs.readFileSync(path.join(main, ...INSTALL_STAMP_PATH), 'utf8'));
+        assert.equal(typeof stamp.lockHash, 'string');
+        assert.equal(stamp.lockHash.length, 64);
+        assert.match(stamp.installedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+        // Second run: the stamp now matches, so npm is not called again.
+        const npm2 = fakeNpm();
+        const logs2 = [];
+        runSdlc(['node-modules', '--apply'], { git: gitFor(main), npm: npm2, log: (m) => logs2.push(m), root: worktreeRoot });
+        assert.equal(npm2.calls.length, 0);
+        assert.ok(logs2.join('\n').includes('node-modules: current'));
+      } finally {
+        fs.rmSync(main, { recursive: true, force: true });
+      }
+    });
+
+    it('a dirty main-checkout lockfile skips the install entirely', () => {
+      const main = makeMain();
+      try {
+        const git = gitFor(main, {
+          [`-C ${main} status --porcelain -- package.json package-lock.json`]: ' M package-lock.json\n',
+        });
+        const npm = fakeNpm();
+        const logs = [];
+        runSdlc(['node-modules', '--apply'], { git, npm, log: (m) => logs.push(m), root: main });
+        assert.equal(npm.calls.length, 0);
+        assert.ok(logs.join('\n').includes('node-modules: skipped (package-lock.json dirty in main checkout)'));
+      } finally {
+        fs.rmSync(main, { recursive: true, force: true });
+      }
+    });
+
+    it('a failed install is one greppable line, never a throw — the next cycle retries', () => {
+      const main = makeMain();
+      try {
+        const npm = () => {
+          throw new Error('npm ERR! code ENOENT\nmore noise');
+        };
+        const logs = [];
+        assert.doesNotThrow(() =>
+          runSdlc(['node-modules', '--apply'], { git: gitFor(main), npm, log: (m) => logs.push(m), root: main }),
+        );
+        assert.ok(logs.join('\n').includes('node-modules: install FAILED (npm ERR! code ENOENT)'));
+        // No stamp: the drift is still live, so the next cycle tries again.
+        assert.equal(fs.existsSync(path.join(main, ...INSTALL_STAMP_PATH)), false);
+      } finally {
+        fs.rmSync(main, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a lockfile the install rewrote instead of committing it', () => {
+      const main = makeMain();
+      try {
+        const git = gitFor(main, {
+          [`-C ${main} status --porcelain -- package-lock.json`]: ' M package-lock.json\n',
+        });
+        const logs = [];
+        runSdlc(['node-modules', '--apply'], { git, npm: fakeNpm(), log: (m) => logs.push(m), root: main });
+        assert.ok(logs.join('\n').includes('install rewrote package-lock.json — left uncommitted for a human'));
+        assert.equal(git.calls.some((c) => c[0] === 'commit' || c.includes('add')), false);
+      } finally {
+        fs.rmSync(main, { recursive: true, force: true });
+      }
+    });
+
+    it('falls back to the relative --git-common-dir on a git that rejects --path-format', () => {
+      const main = makeMain();
+      try {
+        const git = fakeExec({ 'rev-parse --git-common-dir': '.git\n' });
+        // --path-format returns '' here (unanswered key), so the fallback resolves against root.
+        assert.equal(mainCheckoutRoot(git, main), path.resolve(main, '.git', '..'));
+      } finally {
+        fs.rmSync(main, { recursive: true, force: true });
+      }
+    });
   });
 });
 

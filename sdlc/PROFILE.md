@@ -56,7 +56,9 @@ Optional — an unbound key means the lane step it gates is **skipped, not impro
 - **VP4 dispatcher:** trigger *(scheduled task / cron / CI / interactive)*, machine-lock
   representation *(`.git/sdlc-maint.lock` mkdir + 30-min rename reap)*, worker isolation
   *(issue-scoped worktrees at `<WORKTREE_ROOT>/<issue#>`)*, per-lane model tiers if they differ
-  from `dispatch.md`'s table.
+  from `dispatch.md`'s table, focused dispatch *(`focus.md` on request | unused)*, shared
+  dependency install *(one install junctioned across worktrees, refreshed by Step 0a's
+  `node-modules` | per-worktree install)*.
 - **VP5 quality bars:** the commands above; which lint gate form (`clean` vs ratchet); known env
   limits; per-repo bars if multi-repo.
 - **Deterministic core:** `<SDLC_CLI>` and which operations it owns *(or `none`)*.

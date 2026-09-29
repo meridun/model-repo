@@ -17,6 +17,10 @@ This is the *why* behind the prompts. Read it once; the prompts are self-contain
 > **Port record:** prompt refinements, bounce summary, and helper tests ported from
 > [meridun/IsekaiOnline](https://github.com/meridun/IsekaiOnline) **78492873f** (2026-09-07).
 > Rationale and lessons-learned sections ported from the same source **78492873f** (2026-09-07).
+> Prior-work check re-entry rule (upstream-section defects bounce, even over a PARK), candidate
+> snapshot field fix, reapable intake docs worktree, focused dispatch (`sdlc/focus.md`,
+> `--issue` on `lanes`/`cycle-prep`), and the drift-gated `node-modules` Step 0a refresh ported
+> from the same source **122df3187** (2026-09-29).
 
 ## The idea
 
@@ -49,15 +53,21 @@ merge-and-close. Multi-repo forks make the tail explicit; both forms conform.
    thread alone.
 
 2. **Idempotency — reconcile against reality, never re-execute blindly.** Schedulers fire on a clock,
-   not on need. Every stage checks "is my artifact already present for this branch HEAD?" and no-ops if
-   so. A re-run must never redo completed work or restart an in-progress branch — it *continues* it.
+   not on need. A re-run must never redo completed work or restart an in-progress branch — it
+   *continues* it.
    The same rule covers **human rewinds**: an item moved back to an earlier stage, or a closed issue
    reopened into `stage:intake`, is reconciled, not re-run from scratch. The stage investigates what
    already exists, trusting artifacts over assertions — merged code / branch state / PR status first,
-   then recorded reports for the current HEAD, then issue comments, labels last. Existing valid
-   artifacts are presumed good unless the human's rewind comment gives a reason to distrust them or
-   the investigation itself finds something significant; then redo exactly the invalidated part, and
-   only it. If the evidence shows the work is already fully shipped, any stage may short-circuit:
+   then recorded reports for the current HEAD, then issue comments, labels last. **Existing work is
+   evidence, not proof.** A worker only finds its own stage's artifacts on an item still in its lane
+   when something went back: a rewind, a bounce, a crashed or reaped worker, a CONTINUE, an answered
+   PARK, or a reopen. Each is a reason to doubt the prior work, so the worker neither skips the stage
+   as done nor starts over: it tries to refute what exists, keeps what survives, redoes only what
+   fails, and records a short Prior-work check in its emit body. Intake and design derive their own
+   answer before re-reading the old one; build re-runs its tests against the acceptance criteria;
+   verify, audit, and ship simply run again. A defect found in *another* lane's section bounces to
+   the owning lane — even over a PARK — rather than being worked around (see `sdlc/README.md`
+   EMIT). If the evidence shows the work is already fully shipped, any stage may short-circuit:
    PARK with the evidence (PR#, commit, observed behavior) for a human to close — no silent
    auto-close, and no pointless ratchet through the remaining lanes. Reality includes work the
    pipeline never produced — a reasonably-named branch on local or origin, work already partly
@@ -283,6 +293,14 @@ rewrite, and a cron job can be debugged by pasting the same file into a session.
   fenced JSON result block (`{issue, outcome, next_stage, notes}`) the dispatcher consumes — so
   self-heal and digest read structured data instead of parsing prose, and a missing or malformed
   block is a recorded contract violation with prose fallback.
+- **Focused.** [`sdlc/focus.md`](../sdlc/focus.md) runs one ordinary dispatch cycle (same
+  maintenance, locks, integrity check, model routing, self-heal, digest) with lane eligibility
+  filtered to one issue via `cycle-prep --issue <N>`. Because the dispatcher re-runs a lane
+  serially when an ADVANCE lands an item in it — and never runs a lane twice per cycle — the issue
+  walks forward lane by lane and stops on PARK, BOUNCE, CONTINUE, or a human gate
+  (`stage:queued`, PR merge). Manual and on request only. The filter is deliberately confined to
+  the lanes section: a focused cycle still pays for every global ritual, so running one never
+  leaves the rest of the pipeline's bookkeeping behind.
 - **Manual.** Paste a lane prompt into a session; it does one item, minting its own run-id for the
   claim comment. Claims deconflict per issue, so manual and scheduled runs coexist — which makes
   manual the right mode for exercising an unproven tail before trusting it to the clock.
@@ -322,15 +340,33 @@ or unknown lane labels routes to a human instead of being interpreted.
   the CLI computes the next eligible issue, claims it atomically, retries the next one on a lost
   race, and exits `idle` on an empty lane.
 - **`cycle-prep` — one delimited report per cycle.** The pre-dispatch sequence
-  (mint → maint-lock → lanes → gate --reap → deps → sweep → git-maint → worktree-sweep →
-  conflict-scan → maint-release) is fixed and zero-judgment, so it collapses into one command
+  (mint → maint-lock → lanes → gate --reap → deps → sweep → git-maint → node-modules →
+  worktree-sweep → conflict-scan → maint-release) is fixed and zero-judgment, so it collapses into one command
   emitting one machine-readable report; the dispatcher then spends its round-trips on the only
   real decision, which workers to spawn. It is a **composer, not a reimplementation** — each
   section literally invokes the standalone subcommand, so their invariants and tests carry over
-  and every command stays independently callable. The maintenance trio runs only while this run
+  and every command stays independently callable. The maintenance sections run only while this run
   holds the maintenance lock and releases it in a `finally`; a lock held elsewhere is *reported and
   skipped*, never a cycle failure. It cannot run from inside a worktree (the lock is a directory
   under a real `.git`), which is why the dispatcher only ever runs it in the main checkout.
+  `--issue <N>` (and `lanes --issue <N>`) is the focused-dispatch filter: depths, ineligible
+  breakdowns, and the integrity list stay global; only the eligible/blocked lists are trimmed to
+  #N, plus one verdict line — `focus #N: eligible in <lane>` | `ineligible in <lane> (<reasons>)`
+  | `queued (human gate)` | `no stage label` | `multiple stage labels (…)` |
+  `unknown stage label (…)` | `not open (closed or nonexistent)`.
+- **`node-modules` — keep a shared install honest, drift-gated.** Hosts that share one install
+  across worktrees (the `worktree` command junctions the main checkout's `node_modules`) otherwise
+  run the OLD dependency tree after a dependency-changing merge until some worker triages a
+  version-shaped red test — and a security bump stays un-installed in the code actually
+  executing. The probe is the sha256 of the main checkout's `package-lock.json` against
+  `node_modules/.sdlc-install-stamp` (inside `node_modules`, so a wipe invalidates it and it is
+  never committed): equal is a no-op; drift runs a plain `npm install` in the main checkout,
+  resolved from `git rev-parse --git-common-dir` so the command is worktree-safe. Never `npm ci`
+  (its recursive delete next to junctioned worktrees can empty the shared install), skipped while
+  `package.json`/`package-lock.json` are dirty in the main checkout (human dependency WIP), and a
+  failed install is one greppable `node-modules: install FAILED (…)` line, never a failed cycle.
+  It sits after `git-maint` (which is what brings a merged lockfile into the main tree) and before
+  `worktree-sweep`.
 - **`maint-lock` / `maint-release` — serialize the local half only.** Tracker writes are
   idempotent and deconflict themselves; the filesystem does not. The per-machine lock covers
   git/worktree/artifact maintenance and nothing else, and *held* means skip, never abort.

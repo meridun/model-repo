@@ -18,7 +18,8 @@ stop.
 Per the README universal loop — lane `stage:ship`, idle reply `SHIP: idle`.
 
 ### 2. WORK
-Idempotency first: a PR for this branch already open with the docs fan-out done → skip to **ADVANCE**.
+Prior work first: a PR for this branch already open with the docs fan-out done is checked, not
+trusted — confirm the fan-out against the diff (README WORK) and fix any gap, then **ADVANCE**.
 A PR for this branch already **merged** with the issue still open → PARK with the merge evidence for a
 human to close (a close cascades to dependents through the dependency edges; intake's close sweep posts the bookkeeping).
 Otherwise, in the issue's worktree (`<WORKTREE_ROOT>/<issue#>`) on build's branch

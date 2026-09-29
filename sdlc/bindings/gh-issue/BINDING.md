@@ -126,9 +126,13 @@ fallback, normative for what the op must do.
 | `sweep-ack` | `sdlc sweep --ack` **after** processing the work-list (at-least-once delivery) | none — the sweep is bounded by its ~24 h window and idempotent |
 
 **Dispatcher shortcuts.** `sdlc cycle-prep --apply` runs the whole zero-judgment pre-dispatch
-sequence (mint → maint-lock → lanes → gate --reap → deps → sweep → git-maint → worktree-sweep →
+sequence (mint → maint-lock → lanes → gate --reap → deps → sweep → git-maint → node-modules → worktree-sweep →
 conflict-scan → maint-release) and prints one delimited `=== section ===` report plus `run-id:` and
-`started:` lines — read Steps 0/0a from it, don't re-run the commands. `sdlc heal <lane>` with no
+`started:` lines — read Steps 0/0a from it, don't re-run the commands. With `--issue <N>` it is
+the focused form (`focus.md`): only the `=== lanes ===` eligibility is filtered to #N, plus a
+`focus #N: …` verdict line; every other section stays global (`sdlc lanes --issue <N>` is the
+matching re-query). `sdlc node-modules [--apply]` is the Step 0a shared-install refresh on its
+own. `sdlc heal <lane>` with no
 issue auto-discovers every `stage:<lane>` + `sdlc:wip` straggler after the workers return.
 `sdlc digest` prints depths, parked/hold lists, and the arrivals/departures delta vs the last
 cycle. `sdlc worktree <issue>` adds the issue worktree and junctions its `node_modules` to the main

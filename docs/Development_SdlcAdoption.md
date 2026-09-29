@@ -7,7 +7,7 @@ picked not edited), **profile** (the one file you fill) — see [`sdlc/README.md
 ## 1. Copy the tree
 
 - `sdlc/` → `sdlc/` in your repo. One directory, copied verbatim: the core (`README.md`,
-  `lanes/`, `dispatch.md`), the bindings (`bindings/*`), the profile template (`PROFILE.md`), and
+  `lanes/`, `dispatch.md`, `focus.md`), the bindings (`bindings/*`), the profile template (`PROFILE.md`), and
   the tracker-neutral tools (`tools/`). Keep the path — the gh-issue CLI resolves your repo root
   as three directories above itself, and every pointer in this guide assumes `sdlc/` at the root.
   You may delete the `bindings/<name>/` directories you don't bind.
