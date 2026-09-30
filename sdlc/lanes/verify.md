@@ -19,8 +19,9 @@ stop.
 Per the README universal loop — lane `stage:verify`, idle reply `VERIFY: idle`.
 
 ### 2. WORK
-Idempotency first: a green verify report for the **current branch HEAD** (no new commits since it was
-written) → skip to **ADVANCE**. New commits invalidate a prior report — re-verify. Otherwise:
+Prior work first: a verify report that already exists — even a green one for the current HEAD — is
+evidence, not a pass. Run the verification again (README WORK, *Existing work is evidence, not
+proof*) and note in the emit body where the new result agrees or disagrees with it. Then:
 
 Apply the `verifier` role's adversarial stance **inline** (you are fresh context relative to the
 build worker — that's the point; see `.github/agents/verifier.agent.md` for the checklist). Never
@@ -111,10 +112,10 @@ no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
   keeps the stage boundary clean and the fix on build's accountable branch.
 - **A real run is mandatory, not optional.** Green tests without walking the ACs in the running
   software is a half-done verify; behavior bugs hide where unit tests don't look.
-- **Idempotent.** A green report for the current branch HEAD = done. Any new commit invalidates it.
-  An item rewound here by a human with a still-valid green report → re-confirm cheaply and ADVANCE,
-  unless their rewind comment names a reason to distrust it — then re-verify that part. Evidence that
-  the work already shipped (merged PR) → PARK with the evidence for a human to close.
+- **Prior work is re-checked, not trusted.** An existing report — green or not, current HEAD or
+  not — is re-run, never skipped on (README WORK); a human's rewind comment says where to look
+  first. Evidence that the work already shipped (merged PR) → PARK with the evidence for a human to
+  close.
 - **Reuse build's `feat/<issue>` branch** for new tests; don't cut a new one. (Exception: the
   no-branch fallback — an item built outside the pipeline is verified on `<DEFAULT_BRANCH>`, and its
   new specs are handed to ship for a home.)
