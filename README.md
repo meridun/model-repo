@@ -50,12 +50,12 @@ substantive improvement (or a bug fix) is a port candidate.
 
 | Component | Paths here | Depends on | Sub-units (cherry-pickable) | Provenance / pin |
 |---|---|---|---|---|
-| Doc-tier system (L1/L2/L3) | `.github/copilot-instructions.md`, `CLAUDE.md`, `docs/Documentation.md`, `.github/skills/proj-doc-tiers/`, `.github/skills/proj-agent-skill/` | — | L1 file alone; either skill alone | originated here |
+| Doc-tier system (L1/L2/L3) | `.github/copilot-instructions.md`, `CLAUDE.md`, `docs/Documentation.md`, `.github/skills/proj-doc-tiers/`, `.github/skills/proj-agent-skill/`, `scripts/check-doc-issue-refs.mjs`, `test/check-doc-issue-refs.test.mjs` | — (doc-issue-refs guard: Node + `gh`) | L1 file alone; either skill alone; doc-issue-refs guard alone (needs gh) | originated here; doc-issue-refs guard ported from meridun/IsekaiOnline 122df3187 (2026-09-29) |
 | Config sync + meta-drift guard | `scripts/sync-claude-config.mjs`, `scripts/check-meta-drift.mjs` | Node; the `.github/skills` + `.github/agents` layout | sync script alone (drift guard is optional CI) | ported from a project repo (script header cites its issues #454/#490); **unpinned** |
 | Caveman mode hook | `## Caveman mode` in L1 (canonical), `.claude/settings.json` (`UserPromptSubmit`), rule 4 of `scripts/check-meta-drift.mjs`, `test/meta-drift.test.mjs` | Claude Code (hook); L1 alone for Copilot | L1 section alone (no hook) | originated here; no external dependency — see `docs/Development_TokenTools.md` |
 | graphify nudge hook | `.claude/hooks/graphify-nudge.py`, `.claude/settings.json` (`PreToolUse`), `docs/Development_TokenTools.md` | Claude Code; graphify installed | doc alone (vtk notes) | originated here; graphify itself is external; vtk notes pinned to [meridun/vtk](https://github.com/meridun/vtk) **fc4b1a5** in `docs/Development_TokenTools.md` |
 | Role-based model routing | `.github/agents/*.agent.md` (except `sdlc-worker`), `## Orchestration` in L1, `docs/Development_ModelRouting.md` | config sync (or hand-copy agents to `.claude/agents/`) | any subset of roles; policy section without agents | pilotfish **v1.1.2** — pin in `docs/Development_ModelRouting.md` |
-| Agentic SDLC pipeline | `sdlc/` (core `README.md` + `lanes/` + `dispatch.md`; `bindings/gh-issue/` with the reference CLI `sdlc.mjs` and `labels.md`; `bindings/ado-feature/`, `bindings/ado-pbi/`; `PROFILE.md`; `tools/` lint ratchet), `test/sdlc.test.mjs`, `test/check-lint-baseline.test.mjs`, `.github/agents/sdlc-worker.agent.md`, `.github/workflows/ci.yml`, `docs/Development_AgenticSDLC.md`, `docs/Development_Sdlc*.md` | `gh` ≥ 2.86 + GitHub Issues (native dependency edges); Node for the CLI and ratchet only | three layers per `Development_SdlcComposability.md`: normative spec docs only → + core prompts and binding → + reference CLI; individual lanes; the lint ratchet (`sdlc/tools/`) alone. Azure DevOps bindings (`bindings/ado-feature`, `bindings/ado-pbi`) with worked profiles in `docs/Development_SdlcProfileExample_Ado*.md` | **canonical here** — seeded from meridun/agentic-sdlc 34b769e (2026-09-05, retired); prompt refinements ported from meridun/IsekaiOnline 78492873f (2026-09-07) |
+| Agentic SDLC pipeline | `sdlc/` (core `README.md` + `lanes/` + `dispatch.md` + `focus.md`; `bindings/gh-issue/` with the reference CLI `sdlc.mjs` and `labels.md`; `bindings/ado-feature/`, `bindings/ado-pbi/`; `PROFILE.md`; `tools/` lint ratchet), `test/sdlc.test.mjs`, `test/check-lint-baseline.test.mjs`, `.github/agents/sdlc-worker.agent.md`, `.github/workflows/ci.yml`, `docs/Development_AgenticSDLC.md`, `docs/Development_Sdlc*.md` | `gh` ≥ 2.86 + GitHub Issues (native dependency edges); Node for the CLI and ratchet only | three layers per `Development_SdlcComposability.md`: normative spec docs only → + core prompts and binding → + reference CLI; individual lanes; the lint ratchet (`sdlc/tools/`) alone. Azure DevOps bindings (`bindings/ado-feature`, `bindings/ado-pbi`) with worked profiles in `docs/Development_SdlcProfileExample_Ado*.md` | **canonical here** — seeded from meridun/agentic-sdlc 34b769e (2026-09-05, retired); prompt refinements ported from meridun/IsekaiOnline 122df3187 (2026-09-29) |
 | Upstream sync procedure | `.github/skills/proj-upstream-sync/` | — | — | originated here |
 
 ## Bootstrapping a new repo (template use)
@@ -106,8 +106,8 @@ docs/*.md                         L3 — loaded explicitly (deep reference)
 .github/agents/*.agent.md         Subagent shims (canonical source)
 .claude/                          Claude Code mirror, generated — do not hand-edit
 sdlc/                             Agentic SDLC tree: core prompts, gh-issue binding + CLI, profile, lint ratchet
-scripts/                          sync-claude-config, check-meta-drift
-.github/workflows/ci.yml          Tests + config-sync and meta-drift checks on PRs
+scripts/                          sync-claude-config, check-meta-drift, check-doc-issue-refs
+.github/workflows/ci.yml          Tests + config-sync, meta-drift, and doc-issue-refs checks on PRs
 ```
 
 `.claude/skills/` and `.claude/agents/` are generated by `npm run sync:claude-config` from the

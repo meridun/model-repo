@@ -130,8 +130,11 @@ whole cost of the standard phase for a bug fix; don't inflate it.
   decision (if any) and where it was recorded, and a pointer to the body's
   `## Implementation plan` for the queued reviewer.
 - **BOUNCE** → `stage:intake` — on inspection the item is **incoherent or mis-scoped** (not a
-  single unit of work, or unclear what's being asked). Comment why, so intake can re-file or
-  close it — don't silently re-route past intake. *Design-exempt is not a bounce reason* — exempt
+  single unit of work, or unclear what's being asked), **or** a section intake owns
+  (`## Requirements` / `## Acceptance criteria`) is factually wrong. The second case bounces
+  **even when you would otherwise PARK** (README EMIT, *Upstream defects bounce*). Comment why,
+  with evidence, plus any pending human question, so intake can fix, re-file, or close it —
+  don't silently re-route past intake. *Design-exempt is not a bounce reason* — exempt
   items get their spec-lite here; the spec track is why every item visits this lane.
 
 ### 4. STOP
@@ -145,8 +148,10 @@ no `→` in a shell; EMIT only via `sdlc emit`, per the core loop):
 - **Idempotent:** built artifacts, a recorded decision, and a written spec are durable. A re-run
   on a PARKed item the human has since answered should graduate + spec + ADVANCE; a re-run on an
   un-answered one re-surfaces the same decision cheaply rather than rebuilding artifacts; a
-  re-run on a fully-specced item just re-ADVANCEs. An item **rewound here by a human**: read
-  their rewind comment; only the part it (or your own check) invalidates gets reworked.
+  re-run on a fully-specced item is checked, not blindly re-ADVANCEd. Any existing artifact, PARK
+  question, or plan is prior work (README WORK): sketch your own approach from the requirements
+  and code before re-reading it, compare, and rework only what fails. A recorded human decision
+  is not re-litigated — if it now looks wrong, PARK.
 - **Order is strict when both tracks apply:** decision → spec → ADVANCE. The spec depends on the
   pick, which is exactly why the pick parks in-phase and the spec doesn't.
 - **You build docs and plans, not features.** Design artifacts + decision-record edits on the

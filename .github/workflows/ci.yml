@@ -18,4 +18,8 @@ jobs:
       # adopter-side CI step — see docs/Development_SdlcAdoption.md § 5) plus the meta-drift guard.
       - run: npm run sync:claude-config:check
       - run: npm run check:meta-drift
+      # Docs must not cite a `superseded` issue without its superseder (docs/Documentation.md).
+      - run: npm run check:doc-issue-refs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm test

@@ -154,7 +154,9 @@ the design worker — never write or edit those here.
   you are graduating an answered debate: append the one-line
   decision + issue link to `<DECISION_RECORD>` and land it on `<DEFAULT_BRANCH>` now — decisions are
   shared reference, not build-branch cargo. Never use the main checkout: create a throwaway worktree
-  (`git worktree add <WORKTREE_ROOT>/intake-<issue#> <DEFAULT_BRANCH>` after
+  (`git worktree add <WORKTREE_ROOT>/<issue#> <DEFAULT_BRANCH>` — the standard issue-scoped name,
+  so dispatcher maintenance reaps it if you die mid-graduation; no build worktree exists for the
+  issue yet — after
   `git fetch origin <DEFAULT_BRANCH>:<DEFAULT_BRANCH>` where possible), commit the docs-only change,
   and push with retry-on-non-fast-forward (fetch, rebase the single docs commit, push again — another
   intake worker may have raced you). `<DEFAULT_BRANCH>` protected → open a fast docs PR instead.
@@ -218,8 +220,10 @@ dependency edge).
   the dependency-edge writes (`dep-edge`, `dep-migrate`) are tracker bookkeeping, not repo
   changes. The collision sweep's git commands (`fetch`, `branch -r`, `log`, `diff`) are read-only
   too — they inspect remote branches without checking anything out.
-- **Idempotent — unless the thread says otherwise:** a prior intake summary comment → re-confirm the
-  verdict cheaply, don't re-research. A PARKed item with an in-thread answer should ADVANCE next
+- **Idempotent — unless the thread says otherwise:** a prior intake summary comment → check it per
+  the README (*Existing work is evidence, not proof*: draft your own requirements from the author
+  text first, then compare, and confirm every file:line the sections cite) rather than
+  re-researching from scratch. A PARKed item with an in-thread answer should ADVANCE next
   pass. **Exception:** a bounce/comment asking for re-evaluation (e.g. a long-held issue returned as
   possibly stale) overrides the cheap path — run the full WORK pass as if the artifacts didn't
   exist: dup-check again (including the closed-issue search — it may have shipped meanwhile),
