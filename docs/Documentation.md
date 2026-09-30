@@ -41,6 +41,6 @@ process.
 - `Development.md` — local setup, test commands, branch model
 - `Development_AgenticSDLC.md` — the Agentic SDLC model and invariants (ported from upstream);
   `Development_SdlcAdoption.md` (copy the tree, pick the binding, fill the profile), `Development_SdlcComposability.md`
-  (9-stage canonical spine), `Development_SdlcProfileExample.md` (worked `gh-issue` profile);
+  (9-stage canonical spine), `Development_SdlcProfileExample.md` (worked `gh-issue` profile), `Development_SdlcProfileExample_AdoFeature.md` / `_AdoPbi.md` (worked Azure DevOps profiles);
   the label taxonomy lives in `sdlc/bindings/gh-issue/labels.md`
 - `Development_TokenTools.md` — vtk/graphify setup notes, if adopted
