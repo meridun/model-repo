@@ -2,17 +2,17 @@
 
 This is the *why* behind the prompts. Read it once; the prompts are self-contained after that.
 
-> **Upstream pin:** [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) **`34b769e`**
-> (2026-09-05). To re-sync, diff upstream's `sdlc/`, `test/`, `agents/sdlc-worker.md`,
-> `docs/{AgenticSDLC,Adoption,Composability}.md`, and `docs/profiles/gh-issue.example.md` against
-> `sdlc/`, `test/`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`, and
-> `docs/Development_Sdlc*.md`, then bump this pin. Local adaptations to preserve: doc pointers
-> renamed to this repo's `docs/Development_*` / `.github/` paths; `PROD_BRANCH=main` in
+> **Canonical source.** This repo is the upstream for the agentic SDLC. It was seeded from
+> [meridun/agentic-sdlc](https://github.com/meridun/agentic-sdlc) at **`34b769e`** (2026-09-05),
+> which is now retired; the `ado-feature` / `ado-pbi` bindings and their profile examples were
+> carried across on 2026-09-29. Downstream forks pin a model-repo tag or sha in their profile's
+> `SPEC_VERSION` and re-sync per [proj-upstream-sync](../.github/skills/proj-upstream-sync/SKILL.md):
+> diff `sdlc/`, `test/`, `.github/agents/sdlc-worker.agent.md`, `docs/Development_AgenticSDLC.md`
+> and `docs/Development_Sdlc*.md`. Local conventions of this copy: `PROD_BRANCH=main` in
 > `sdlc/bindings/gh-issue/sdlc.mjs` and the profile; the `proj-doc-tiers` skill name in
 > `sdlc/lanes/ship.md`; the `verifier` / `security-executor` stances inlined in
-> `sdlc/lanes/verify.md` / `audit.md` (declared in `sdlc/PROFILE.md` § Known deviations); the
-> `ado-feature` / `ado-pbi` bindings and their profile examples **declined** (no Azure DevOps
-> downstream yet — revisit when one appears); CI in `.github/workflows/ci.yml` targets `dev`/`main`.
+> `sdlc/lanes/verify.md` / `audit.md` (declared in `sdlc/PROFILE.md` § Known deviations); CI in
+> `.github/workflows/ci.yml` targets `dev`/`main`.
 
 > **Port record:** prompt refinements, bounce summary, and helper tests ported from
 > [meridun/IsekaiOnline](https://github.com/meridun/IsekaiOnline) **78492873f** (2026-09-07).

@@ -13,9 +13,9 @@ Required:
 
 | Key | Value | Meaning |
 |---|---|---|
-| `BINDING` | `gh-issue` | which `bindings/<name>/BINDING.md` is bound (`gh-issue` here; `ado-feature` · `ado-pbi` live upstream in agentic-sdlc and are not carried in this repo) |
+| `BINDING` | `gh-issue` | which `bindings/<name>/BINDING.md` is bound (`gh-issue` here; `ado-feature` · `ado-pbi` also carried) |
 | `SDLC_CLI` | `node sdlc/bindings/gh-issue/sdlc.mjs` | the binding's deterministic core invocation, or `none` (`sdlc …` in any prompt means this) |
-| `SPEC_VERSION` | `34b769e` | framework git tag (or sha) this profile tracks — see the pin in `docs/Development_AgenticSDLC.md` |
+| `SPEC_VERSION` | `model-repo@dev` | this repo is the canonical spec; downstream profiles record the model-repo tag or sha they track (see `docs/Development_AgenticSDLC.md`) |
 | `PROJECT` | | project name (every worker's opening line) |
 | `REPO_PATH` | | local working directory the scheduled agent runs in |
 | `WORKER_AGENT` | `sdlc-worker` | the isolated worker agent's `subagent_type` name — `.github/agents/sdlc-worker.agent.md` here; rename project-scoped (e.g. `acme-sdlc-worker`) on adoption |
@@ -72,5 +72,3 @@ List each with why. Undeclared divergence is drift; declared divergence is legit
   prefix convention of this repo.
 - Doc pointers in the core and binding files point at `docs/Development_*` and `.github/` paths
   instead of upstream's `docs/*.md` / `agents/` / `skills/`. Why: this repo's doc-tier layout.
-- `bindings/ado-feature` and `bindings/ado-pbi` are not carried. Why: no Azure DevOps downstream
-  yet; copy them from upstream when one appears.

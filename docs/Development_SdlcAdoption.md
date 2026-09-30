@@ -39,7 +39,7 @@ Two Claude Code notes:
 | You have | Bind | Then |
 |---|---|---|
 | GitHub issues, one repo | [`gh-issue`](../sdlc/bindings/gh-issue/BINDING.md) | create the labels: run the `gh` script in [`labels.md`](../sdlc/bindings/gh-issue/labels.md) |
-| Azure DevOps | [`ado-feature`](https://github.com/meridun/agentic-sdlc/tree/34b769e/sdlc/bindings/ado-feature/BINDING.md) (multi-repo) or [`ado-pbi`](https://github.com/meridun/agentic-sdlc/tree/34b769e/sdlc/bindings/ado-pbi/BINDING.md) (single repo, proposed) — **upstream only**, not carried in this repo | copy the binding directory from upstream agentic-sdlc into `sdlc/bindings/` first |
+| Azure DevOps | [`ado-feature`](../sdlc/bindings/ado-feature/BINDING.md) (multi-repo) or [`ado-pbi`](../sdlc/bindings/ado-pbi/BINDING.md) (single repo, proposed) | no reference CLI; the fork supplies its own `sdlc.ps1` implementing the binding's operations |
 
 The binding is read at runtime, not edited: every abstract operation the core names (`claim`,
 `emit`, `dep-edge`, …) is a row in its table. If your substrate needs something different, that
@@ -92,8 +92,9 @@ implements to, verify exercises, and audit reviews for. Be specific and concrete
 Then fill the profile's variation-point lines and **known deviations** (skeleton in
 [Development_SdlcComposability.md](Development_SdlcComposability.md#the-conformance-profile)). Worked examples:
 [Development_SdlcProfileExample.md](Development_SdlcProfileExample.md) (the minimal single-repo GitHub case
-with the reference CLI); the Azure DevOps examples (`ado-feature`, `ado-pbi`) live upstream in
-agentic-sdlc under `docs/profiles/`.
+with the reference CLI); [Development_SdlcProfileExample_AdoFeature.md](Development_SdlcProfileExample_AdoFeature.md)
+(multi-repo Azure DevOps Features) and [Development_SdlcProfileExample_AdoPbi.md](Development_SdlcProfileExample_AdoPbi.md)
+(single-repo Azure DevOps PBIs).
 
 ## 4. The gh-issue deterministic core (recommended)
 

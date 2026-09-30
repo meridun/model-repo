@@ -250,7 +250,7 @@ body, Feature description, PBI description) is the binding's `read` / `write-sec
 | File | Stage | Notes |
 |---|---|---|
 | [`PROFILE.md`](PROFILE.md) | — | **the one file adoption fills**: binding choice, every `<KEY>`, variation points, deviations |
-| [`bindings/`](bindings/README.md) | — | the operation contract + one directory per substrate (`gh-issue` here; `ado-feature` / `ado-pbi` upstream only) |
+| [`bindings/`](bindings/README.md) | — | the operation contract + one directory per substrate (`gh-issue`, `ado-feature`, `ado-pbi`) |
 | [`dispatch.md`](dispatch.md) | *(dispatcher — runs every lane)* | scheduled task; git/worktree maintenance + per-lane fan-out |
 | [`lanes/intake.md`](lanes/intake.md) | `stage:intake` → `stage:design` *(or `stage:verify`, already-built floor)* | triage, dedup, dependency edges, requirements + AC authoring, decision debates + close sweep |
 | [`lanes/design.md`](lanes/design.md) | `stage:design` → `stage:queued` | standard phase: implementation plan (spec track) for every item; optional UX track |
